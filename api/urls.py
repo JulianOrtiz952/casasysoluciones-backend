@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import InmuebleViewSet, InquilinoViewSet, HistorialAlquilerViewSet
+from .views import InmuebleViewSet, InquilinoViewSet, HistorialAlquilerViewSet, ChangePasswordView
 
 router = DefaultRouter()
 router.register(r'inmuebles', InmuebleViewSet)
@@ -9,4 +9,5 @@ router.register(r'historial_alquiler', HistorialAlquilerViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('auth/change-password/', ChangePasswordView.as_view(), name='change_password'),
 ]

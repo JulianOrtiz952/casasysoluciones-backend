@@ -1,7 +1,9 @@
 from rest_framework import viewsets, permissions, status
+from rest_framework.views import APIView
 from rest_framework.response import Response
 from .models import Inmueble, Inquilino, HistorialAlquiler, ImagenInmueble
 from .serializers import InmuebleSerializer, InquilinoSerializer, HistorialAlquilerSerializer
+from django.contrib.auth.models import User
 
 class IsAdminOrReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -66,3 +68,22 @@ class HistorialAlquilerViewSet(viewsets.ModelViewSet):
     queryset = HistorialAlquiler.objects.all().order_by('-fecha_inicio')
     serializer_class = HistorialAlquilerSerializer
     permission_classes = [permissions.AllowAny]
+
+
+class ChangePasswordView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        username = request.data.get("username", "admin")
+        old_password = request.data.get("old_password")
+        new_password = request.data.get("new_password")
+        
+        try:
+            user = User.objects.get(username=username)
+            if not user.check_password(old_password):
+                return Response({"error": "La contraseña actual es incorrecta."}, status=status.HTTP_400_BAD_REQUEST)
+            user.set_password(new_password)
+            user.save()
+            return Response({"message": "Contraseña actualizada exitosamente."}, status=status.HTTP_200_OK)
+        except User.DoesNotExist:
+            return Response({"error": "Usuario no encontrado."}, status=status.HTTP_404_NOT_FOUND)
