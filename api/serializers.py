@@ -92,11 +92,15 @@ class UserSerializer(serializers.ModelSerializer):
         return instance
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    def validate(self, attrs):
-        data = super().validate(attrs)
-        data['username'] = self.user.username
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+
+        # Agregamos atributos personalizados al payload del JWT
+        token['username'] = user.username
         try:
-            data['rol'] = self.user.profile.rol
-        except:
-            data['rol'] = 'SUPER' if self.user.is_superuser else 'OPERARIO'
-        return data
+            token['rol'] = user.profile.rol
+        except UserProfile.DoesNotExist:
+            token['rol'] = 'SUPER' if user.is_superuser else 'OPERARIO'
+            
+        return token
