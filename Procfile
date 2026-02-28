@@ -1,1 +1,1 @@
-web: gunicorn core.wsgi:application --bind 0.0.0.0:8000
+web: python manage.py migrate && python -c "import os, django; os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings'); django.setup(); from django.contrib.auth.models import User; from api.models import UserProfile; [UserProfile.objects.get_or_create(user=u, defaults={'rol': 'SUPER' if u.is_superuser else 'OPERARIO'}) for u in User.objects.all()]" && gunicorn core.wsgi:application --bind 0.0.0.0:8000

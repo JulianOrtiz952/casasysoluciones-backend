@@ -1,9 +1,17 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from .models import Inmueble, Inquilino, HistorialAlquiler, ImagenInmueble
-from .serializers import InmuebleSerializer, InquilinoSerializer, HistorialAlquilerSerializer
+from rest_framework_simplejwt.views import TokenObtainPairView
+from .models import Inmueble, Inquilino, HistorialAlquiler, ImagenInmueble, UserProfile
+from .serializers import InmuebleSerializer, InquilinoSerializer, HistorialAlquilerSerializer, UserSerializer, CustomTokenObtainPairSerializer
 from django.contrib.auth.models import User
+
+class IsSuperUser(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated and request.user.is_superuser
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
 
 class IsAdminOrReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -87,3 +95,8 @@ class ChangePasswordView(APIView):
             return Response({"message": "Contraseña actualizada exitosamente."}, status=status.HTTP_200_OK)
         except User.DoesNotExist:
             return Response({"error": "Usuario no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+class UserViewSet(viewsets.ModelViewSet):
+    queryset = User.objects.all().order_by('-date_joined')
+    serializer_class = UserSerializer
+    permission_classes = [IsSuperUser]

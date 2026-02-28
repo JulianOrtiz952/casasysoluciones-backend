@@ -4,6 +4,27 @@ from io import BytesIO
 from django.core.files.uploadedfile import InMemoryUploadedFile
 import sys
 import os
+from django.contrib.auth.models import User
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+class UserProfile(models.Model):
+    ROLES_CHOICES = [
+        ('SUPER', 'Super'),
+        ('ADMIN', 'Administrador'),
+        ('OPERARIO', 'Operario'),
+    ]
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    rol = models.CharField(max_length=20, choices=ROLES_CHOICES, default='OPERARIO')
+
+    def __str__(self):
+        return f"{self.user.username} - {self.rol}"
+
+@receiver(post_save, sender=User)
+def create_user_profile(sender, instance, created, **kwargs):
+    if created:
+        rol = 'SUPER' if instance.is_superuser else 'OPERARIO'
+        UserProfile.objects.create(user=instance, rol=rol)
 
 class Inmueble(models.Model):
     ESTADOS_CHOICES = [
