@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}Usuarios{% endblock %}
+{% block content %}
+<h1>Usuarios</h1>
+<p><a href="{% url 'pot:user_create' %}" class="btn btn-primary">Crear arrendatario</a></p>
+<form method="get" class="row g-2 mb-3">
+    <div class="col-auto"><select name="role" class="form-select"><option value="">Rol</option>
+        <option value="ADMIN" {% if role == 'ADMIN' %}selected{% endif %}>Admin</option>
+        <option value="ASSISTANT" {% if role == 'ASSISTANT' %}selected{% endif %}>Asistente</option>
+        <option value="TENANT" {% if role == 'TENANT' %}selected{% endif %}>Arrendatario</option>
+    </select></div>
+    <div class="col-auto"><select name="active" class="form-select"><option value="">Activo</option>
+        <option value="1" {% if active == '1' %}selected{% endif %}>Sí</option>
+        <option value="0" {% if active == '0' %}selected{% endif %}>No</option>
+    </select></div>
+    <div class="col-auto"><button class="btn btn-secondary" type="submit">Filtrar</button></div>
+</form>
+<table class="table table-sm">
+    <thead><tr><th>Email</th><th>Rol</th><th>Activo</th><th>Inmuebles</th><th></th></tr></thead>
+    <tbody>
+    {% for row in users %}
+    <tr>
+        <td>{{ row.user.email }}</td>
+        <td>{{ row.user.get_role_display }}</td>
+        <td>{{ row.user.is_active|yesno:"Sí,No" }}</td>
+        <td>{% for a in row.associations %}{{ a.property.code }}{% if not forloop.last %}, {% endif %}{% empty %}-{% endfor %}</td>
+        <td><a href="{% url 'pot:user_detail' row.user.id %}">Ver</a></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block title %}Inmuebles{% endblock %}
+{% block content %}
+<h1>Inmuebles</h1>
+<p><a href="{% url 'pot:property_create' %}" class="btn btn-primary">Nuevo</a></p>
+<form method="get" class="row g-2 mb-3">{{ filter_form.as_p }}<button type="submit" class="btn btn-secondary">Filtrar</button></form>
+<table class="table table-sm">
+<thead><tr><th>Código</th><th>Dirección</th><th>Tipo</th><th>Estado</th><th>Arrendatario</th></tr></thead>
+<tbody>
+{% for p in properties %}
+<tr>
+<td><a href="{% url 'pot:property_detail' p.id %}">{{ p.code }}</a></td>
+<td>{{ p.address }}</td>
+<td>{{ p.get_type_display }}</td>
+<td>{{ p.get_status_display }}</td>
+<td>{% with t=p.get_active_tenant %}{{ t.email|default:"—" }}{% endwith %}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% if is_paginated %}
+<nav><ul class="pagination">
+{% if page_obj.has_previous %}<li class="page-item"><a class="page-link" href="?page={{ page_obj.previous_page_number }}">Ant</a></li>{% endif %}
+<li class="page-item disabled"><span class="page-link">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span></li>
+{% if page_obj.has_next %}<li class="page-item"><a class="page-link" href="?page={{ page_obj.next_page_number }}">Sig</a></li>{% endif %}
+</ul></nav>
+{% endif %}
+{% endblock %}

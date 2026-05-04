@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}Firmar inventario{% endblock %}
+{% block content %}
+<div class="container mt-3">
+<h1>Revisar y firmar</h1>
+<p class="text-muted">{{ inventory.property.address }}</p>
+<div class="alert alert-info"><strong>Importante:</strong> Revisa todo. Firma <strong>irreversible</strong>.</div>
+<div id="inventory-content" class="inventory-scrollable">
+    <div class="card mb-3"><div class="card-header">Propiedad</div><div class="card-body">
+        <p>{{ inventory.property.code }} — {{ inventory.property.get_type_display }} — {{ inventory.property.owner_name }}</p>
+    </div></div>
+    {% for space in inventory.spaces.all %}
+    <div class="card mb-3"><div class="card-header">{{ space.space_name }} — {{ space.get_condition_display }}</div><div class="card-body">
+        {% if space.observations %}<p>{{ space.observations }}</p>{% endif %}
+        <div class="row">{% for photo in space.photos.all %}
+        <div class="col-md-3 mb-2"><img src="{{ photo.image.url }}" class="img-fluid rounded" style="max-height:160px;object-fit:cover;" alt=""></div>
+        {% endfor %}</div>
+    </div></div>
+    {% endfor %}
+    {% if inventory.observations %}<div class="card mb-3"><div class="card-header">Observaciones generales</div><div class="card-body">{{ inventory.observations }}</div></div>{% endif %}
+</div>
+<div class="progress mt-2" style="height:24px;"><div id="scroll-progress" class="progress-bar" style="width:0%">0%</div></div>
+<div class="mt-3">
+<button type="button" class="btn btn-success" id="sign-button" disabled data-bs-toggle="modal" data-bs-target="#signModal">Aceptar y firmar</button>
+<button type="button" class="btn btn-warning" id="obs-button" disabled data-bs-toggle="modal" data-bs-target="#obsModal">Observaciones</button>
+</div>
+</div>
+<div class="modal fade" id="signModal"><div class="modal-dialog"><div class="modal-content">
+<div class="modal-header"><h5 class="modal-title">Confirmar</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<div class="modal-body">¿Firma irreversible?</div>
+<div class="modal-footer">
+<form method="post" action="{% url 'pot:inventory_sign_confirm' inventory.id %}">{% csrf_token %}<button class="btn btn-danger">Sí, firmar</button></form>
+</div></div></div></div>
+<div class="modal fade" id="obsModal"><div class="modal-dialog modal-lg"><div class="modal-content">
+<div class="modal-header"><h5 class="modal-title">Observaciones</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+<form method="post" action="{% url 'pot:inventory_observations' inventory.id %}">{% csrf_token %}
+<div class="modal-body"><textarea name="observation_text" class="form-control" rows="5" required></textarea></div>
+<div class="modal-footer"><button class="btn btn-primary" type="submit">Enviar</button></div>
+</form></div></div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+var el = document.getElementById('inventory-content');
+var bar = document.getElementById('scroll-progress');
+var b1 = document.getElementById('sign-button');
+var b2 = document.getElementById('obs-button');
+if(!el) return;
+el.addEventListener('scroll', function(){
+  var max = el.scrollHeight - el.clientHeight;
+  var pct = max <= 0 ? 100 : (el.scrollTop / max) * 100;
+  bar.style.width = pct + '%';
+  bar.textContent = Math.round(pct) + '%';
+  if(pct >= 95){ b1.disabled = false; b2.disabled = false; bar.textContent = 'Listo'; }
+});
+})();
+</script>
+{% endblock %}

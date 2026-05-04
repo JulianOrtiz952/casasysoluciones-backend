@@ -1,0 +1,11 @@
+{% extends 'base.html' %}
+{% block title %}Mis inventarios{% endblock %}
+{% block content %}
+<h1>Pendientes de firma</h1>
+{% if not inventories %}<p>Nada pendiente.</p>{% else %}
+<ul class="list-group">{% for i in inventories %}
+<li class="list-group-item">{{ i.property.address }} — {{ i.created_at|date }}
+<a href="{% url 'pot:inventory_sign' i.id %}" class="btn btn-sm btn-success float-end">Firmar</a></li>
+{% endfor %}</ul>
+{% endif %}
+{% endblock %}

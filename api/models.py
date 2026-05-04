@@ -4,29 +4,9 @@ from io import BytesIO
 from django.core.files.uploadedfile import InMemoryUploadedFile
 import sys
 import os
-from django.contrib.auth.models import User
-from django.db.models.signals import post_save
-from django.dispatch import receiver
 import urllib.request
 import urllib.parse
 
-class UserProfile(models.Model):
-    ROLES_CHOICES = [
-        ('SUPER', 'Super'),
-        ('ADMIN', 'Administrador'),
-        ('OPERARIO', 'Operario'),
-    ]
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
-    rol = models.CharField(max_length=20, choices=ROLES_CHOICES, default='OPERARIO')
-
-    def __str__(self):
-        return f"{self.user.username} - {self.rol}"
-
-@receiver(post_save, sender=User)
-def create_user_profile(sender, instance, created, **kwargs):
-    if created:
-        rol = 'SUPER' if instance.is_superuser else 'OPERARIO'
-        UserProfile.objects.create(user=instance, rol=rol)
 
 class Inmueble(models.Model):
     ESTADOS_CHOICES = [
@@ -40,21 +20,19 @@ class Inmueble(models.Model):
     descripcion = models.TextField(blank=True)
     precio = models.DecimalField(max_digits=12, decimal_places=2)
     direccion = models.CharField(max_length=255)
-    
-    # Nuevos campos
+
     habitaciones = models.IntegerField(null=True, blank=True)
     banos = models.IntegerField(null=True, blank=True)
     salas = models.IntegerField(null=True, blank=True)
     cocinas = models.IntegerField(null=True, blank=True)
     garajes = models.IntegerField(null=True, blank=True)
     es_comercial = models.BooleanField(default=False)
-    
-    # Nuevos campos de conjunto
+
     en_conjunto = models.BooleanField(default=False)
     administracion_incluida = models.BooleanField(default=False)
     valor_administracion = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     enlace_google_maps = models.CharField(max_length=1000, null=True, blank=True)
-    
+
     imagen = models.ImageField(upload_to='inmuebles/', blank=True, null=True)
     estado = models.CharField(max_length=20, choices=ESTADOS_CHOICES, default='en_oferta')
     creado_en = models.DateTimeField(auto_now_add=True)
@@ -67,10 +45,10 @@ class Inmueble(models.Model):
                 req = urllib.request.Request(self.enlace_google_maps, headers={'User-Agent': 'Mozilla/5.0'})
                 res = urllib.request.urlopen(req, timeout=10)
                 html_content = res.read().decode('utf-8', errors='ignore')
-                
-                titulo_maps = ""
-                subtitulo_maps = ""
-                
+
+                titulo_maps = ''
+                subtitulo_maps = ''
+
                 for meta_match in re.finditer(r'<meta\s+([^>]+)>', html_content):
                     attrs = meta_match.group(1)
                     if 'property="og:title"' in attrs:
@@ -86,23 +64,21 @@ class Inmueble(models.Model):
                 subtitulo_maps = html_lib.unescape(subtitulo_maps).strip()
 
                 if titulo_maps:
-                    # Eliminar " · Google Maps" del subtítulo si existe
-                    if " · Google Maps" in subtitulo_maps:
-                        subtitulo_maps = subtitulo_maps.replace(" · Google Maps", "")
-                    
-                    # Lógica para elegir entre título y subtítulo
-                    starts_with_num = lambda s: (s[0].isdigit() or s[0] in ['-', '+']) if s else False
-                    
+
+                    def starts_with_num(s):
+                        return (s[0].isdigit() or s[0] in ['-', '+']) if s else False
+
+                    if ' · Google Maps' in subtitulo_maps:
+                        subtitulo_maps = subtitulo_maps.replace(' · Google Maps', '')
+
                     if starts_with_num(titulo_maps):
                         if starts_with_num(subtitulo_maps):
                             self.direccion = titulo_maps
                         else:
-                            # Si el subtitulo tiene algo, lo tomamos
                             self.direccion = subtitulo_maps if subtitulo_maps else titulo_maps
                     else:
                         self.direccion = titulo_maps
                 else:
-                    # Fallback original
                     final_url = res.geturl()
                     if '/search/' in final_url:
                         query = final_url.split('/search/')[1].split('?')[0].split('/')[0]
@@ -111,9 +87,8 @@ class Inmueble(models.Model):
                         query = final_url.split('/place/')[1].split('/')[0]
                         self.direccion = urllib.parse.unquote_plus(query)
             except Exception as e:
-                print(f"Error resolviendo enlace de maps: {e}")
+                print(f'Error resolviendo enlace de maps: {e}')
 
-        # Mantenemos esto si hay una imagen principal legacy
         if self.imagen and not getattr(self, '_image_compressed', False):
             if hasattr(self.imagen, 'file') and not hasattr(self.imagen.file, 'url'):
                 try:
@@ -130,12 +105,13 @@ class Inmueble(models.Model):
                     )
                     self._image_compressed = True
                 except Exception as e:
-                    print(f"Error comprimiendo la imagen principal: {e}")
-        
+                    print(f'Error comprimiendo la imagen principal: {e}')
+
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.titulo} - {self.direccion}"
+        return f'{self.titulo} - {self.direccion}'
+
 
 class ImagenInmueble(models.Model):
     inmueble = models.ForeignKey(Inmueble, on_delete=models.CASCADE, related_name='imagenes')
@@ -160,16 +136,16 @@ class ImagenInmueble(models.Model):
                     )
                     self._image_compressed = True
                 except Exception as e:
-                    print(f"Error comprimiendo imagen galería: {e}")
-        
-        # Si esta es portada, quitar el flag a las demás del mismo inmueble
+                    print(f'Error comprimiendo imagen galería: {e}')
+
         if self.es_portada:
             ImagenInmueble.objects.filter(inmueble=self.inmueble, es_portada=True).update(es_portada=False)
-            
+
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"Imagen de {self.inmueble.titulo} - {'Portada' if self.es_portada else 'Galería'}"
+        return f'Imagen de {self.inmueble.titulo} - {"Portada" if self.es_portada else "Galería"}'
+
 
 class Inquilino(models.Model):
     nombre = models.CharField(max_length=200)
@@ -181,6 +157,7 @@ class Inquilino(models.Model):
     def __str__(self):
         return self.nombre
 
+
 class HistorialAlquiler(models.Model):
     inmueble = models.ForeignKey(Inmueble, on_delete=models.CASCADE, related_name='historiales')
     inquilino = models.ForeignKey(Inquilino, on_delete=models.CASCADE, related_name='historiales')
@@ -189,4 +166,4 @@ class HistorialAlquiler(models.Model):
     esta_activo = models.BooleanField(default=True)
 
     def __str__(self):
-        return f"{self.inquilino.nombre} en {self.inmueble.titulo}"
+        return f'{self.inquilino.nombre} en {self.inmueble.titulo}'
