@@ -4,6 +4,7 @@ from api.v1.views.catalogs import CatalogView
 
 urlpatterns = [
     path('auth/', include('api.v1.auth_urls')),
+    path('admin/', include('api.v1.admin_urls')),
     path('', include('api.v1.user_urls')),
     path('', include('api.v1.property_urls')),
     path('', include('api.v1.inventory_urls')),

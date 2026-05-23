@@ -63,7 +63,7 @@ def usuario_tiene_inventarios_pendientes(user):
     ).exists()
 
 
-def crear_arrendatario(created_by, *, email, property_ids, request=None, **profile_fields):
+def crear_arrendatario(created_by, *, email, property_ids, request=None, send_credentials=True, **profile_fields):
     properties = list(Property.objects.filter(pk__in=property_ids))
     if not properties:
         raise UserServiceError(
@@ -99,7 +99,8 @@ def crear_arrendatario(created_by, *, email, property_ids, request=None, **profi
             changed_by=created_by,
         )
 
-    enviar_credenciales_temporales(user, temp_password, request)
+    if send_credentials:
+        enviar_credenciales_temporales(user, temp_password, request)
     return user, temp_password
 
 
@@ -157,7 +158,7 @@ def cambiar_rol_usuario(target, new_role, changed_by, *, confirm=False, request=
     return target, None
 
 
-def asociar_inmueble_arrendatario(tenant, property_obj, created_by, request=None):
+def asociar_inmueble_arrendatario(tenant, property_obj, created_by, request=None, *, notify=True):
     if tenant.role != CustomUser.Role.TENANT:
         raise UserServiceError('not_tenant', 'Solo se pueden asociar inmuebles a arrendatarios.')
 
@@ -178,7 +179,8 @@ def asociar_inmueble_arrendatario(tenant, property_obj, created_by, request=None
         created_by=created_by,
         related_user=tenant,
     )
-    enviar_notificacion_propiedad_asociada(tenant, property_obj, request)
+    if notify:
+        enviar_notificacion_propiedad_asociada(tenant, property_obj, request)
     UserAudit.objects.create(
         user=tenant,
         action='PROPERTY_ASSOCIATED',

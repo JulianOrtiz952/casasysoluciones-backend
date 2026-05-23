@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'rest_framework_simplejwt',
+    'drf_spectacular',
     'corsheaders',
     'storages',
     'pot',
@@ -176,6 +177,26 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'api.v1.pagination.StandardResultsSetPagination',
     'PAGE_SIZE': 20,
     'EXCEPTION_HANDLER': 'api.v1.exceptions.api_exception_handler',
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Casa y Soluciones API',
+    'DESCRIPTION': 'API REST v1 — iteración 1 (usuarios, inmuebles, inventario inicial, tickets).',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'PREPROCESSING_HOOKS': ['api.v1.schema_hooks.preprocess_filter_i1'],
+    'TAGS': [
+        {'name': 'Auth', 'description': 'Autenticación RF-01'},
+        {'name': 'Users', 'description': 'Gestión de usuarios RF-02 a RF-05'},
+        {'name': 'Properties', 'description': 'Inmuebles POT RF-06, RF-07'},
+        {'name': 'Inventories', 'description': 'Inventario inicial RF-08 a RF-12'},
+        {'name': 'Tickets', 'description': 'Creación de tickets RF-13 a RF-17'},
+        {'name': 'Admin', 'description': 'Operaciones administrativas (carga Excel)'},
+        {'name': 'Legacy', 'description': 'Catálogo público api.Inmueble (compatibilidad)'},
+        {'name': 'Catalogs', 'description': 'Enums y catálogos'},
+    ],
+    'SCHEMA_PATH_PREFIX': '/api/v1/',
 }
 
 SIMPLE_JWT = {

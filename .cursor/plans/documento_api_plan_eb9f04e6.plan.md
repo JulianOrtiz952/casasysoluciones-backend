@@ -22,7 +22,7 @@ todos:
     status: completed
   - id: i1-despliegue
     content: "Iteración 1 — Despliegue parcial: OpenAPI i1, legacy, import Excel inicial RF carga datos, checklist env"
-    status: pending
+    status: completed
   - id: i2-mod-gestion-tickets
     content: "Iteración 2 — Gestión tickets HU-06: RF-18 a RF-21 — estados, rechazo con motivo, maestro por nombre, evidencia reparación, semáforo/pendientes"
     status: pending

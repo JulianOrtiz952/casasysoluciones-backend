@@ -157,6 +157,17 @@ Body create (ejemplo):
 }
 ```
 
+## Despliegue parcial (i1)
+
+| Recurso | Ruta |
+|---------|------|
+| OpenAPI JSON | `GET /api/v1/schema/` |
+| Swagger UI | `GET /api/v1/schema/swagger/` |
+| Import Excel (solo ADMIN) | `POST /api/v1/admin/import/excel/` |
+| API legada | `GET /api/v1/legacy/inmuebles/` (compat: `/api/v1/inmuebles/`) |
+
+Detalle operativo y checklist de variables: [`docs/DEPLOY.md`](DEPLOY.md).
+
 ## Nota de alcance
 
 Gestión de tickets (estados, asignación, chat) queda para iteración 2.
