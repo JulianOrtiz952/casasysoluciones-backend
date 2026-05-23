@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}Espacios inv #{{ inventory.id }}{% endblock %}
+{% block content %}
+<h1>Espacios — inventario #{{ inventory.id }}</h1>
+<p><a href="{% url 'pot:inventory_detail' inventory.id %}">Volver</a></p>
+<h2>Nuevo espacio</h2>
+<form method="post">{% csrf_token %}{{ space_form.as_p }}<button class="btn btn-primary">Agregar</button></form>
+<hr>
+{% for s in inventory.spaces.all %}
+<div class="card mb-3"><div class="card-header">{{ s.space_name }} — {{ s.get_condition_display }}
+<form action="{% url 'pot:inventory_space_delete' s.id %}" method="post" class="float-end d-inline">{% csrf_token %}<button class="btn btn-sm btn-danger">Eliminar espacio</button></form>
+</div>
+<div class="card-body">
+<p>{{ s.observations|default:"—" }}</p>
+<div class="row">{% for ph in s.photos.all %}
+<div class="col-md-3 mb-2"><img src="{{ ph.get_thumbnail_url }}" class="img-fluid" alt="">
+<form action="{% url 'pot:inventory_photo_delete' ph.id %}" method="post">{% csrf_token %}<button class="btn btn-sm btn-outline-danger">Quitar foto</button></form>
+</div>{% empty %}<p class="text-muted">Sin fotos</p>{% endfor %}</div>
+<form action="{% url 'pot:inventory_photo_upload' s.id %}" method="post" enctype="multipart/form-data" class="mt-2">{% csrf_token %}
+<input type="file" name="image" accept="image/png,image/jpeg" class="form-control" required>
+<input type="text" name="description" class="form-control mt-1" placeholder="Descripción">
+<button class="btn btn-sm btn-secondary mt-1">Subir foto</button></form>
+</div></div>
+{% empty %}<p>Sin espacios aún.</p>{% endfor %}
+{% endblock %}

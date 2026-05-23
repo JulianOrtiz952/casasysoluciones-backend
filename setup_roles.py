@@ -4,11 +4,12 @@ import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings')
 django.setup()
 
-from django.contrib.auth.models import User
-from api.models import UserProfile
+from django.contrib.auth import get_user_model
 
-for u in User.objects.all():
-    rol = 'SUPER' if u.is_superuser else 'OPERARIO'
-    UserProfile.objects.get_or_create(user=u, defaults={'rol': rol})
+User = get_user_model()
 
-print("Roles verificados/creados correctamente.")
+for u in User.objects.filter(is_superuser=True).exclude(role=User.Role.ADMIN):
+    u.role = User.Role.ADMIN
+    u.save(update_fields=['role', 'updated_at'])
+
+print('Roles de superusuarios sincronizados.')

@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}{{ target.email }}{% endblock %}
+{% block content %}
+<h1>{{ target.get_full_name|default:target.email }}</h1>
+<p>{{ target.email }} — {{ target.get_role_display }} — {% if target.is_active %}Activo{% else %}Inactivo{% endif %}</p>
+{% if open_tickets %}<p class="text-warning">Tiene tickets abiertos.</p>{% endif %}
+{% if request.GET.need_confirm_role %}<p class="text-warning">Confirma cambio de rol abajo (checkbox).</p>{% endif %}
+{% if request.GET.need_confirm_deactivate %}<p class="text-warning">Confirma desactivación.</p>{% endif %}
+
+{% if user.role == 'ADMIN' and user.pk != target.pk %}
+<h2>Inmuebles</h2>
+<ul>
+{% for a in associations %}
+<li>{{ a.property.code }} {{ a.property.address }} {% if a.dissociated_at %}(fin {{ a.dissociated_at|date }}){% else %}
+    <form action="{% url 'pot:dissociate_property' target.id a.property.id %}" method="post" class="d-inline">{% csrf_token %}<button class="btn btn-sm btn-outline-danger">Desasociar</button></form>
+{% endif %}</li>
+{% endfor %}
+</ul>
+{% if target.role == 'TENANT' and target.is_active %}
+<h3>Asociar inmueble</h3>
+<form action="{% url 'pot:associate_property' target.id %}" method="post">{% csrf_token %}{{ assoc_form.as_p }}<button class="btn btn-primary">Asociar</button></form>
+{% endif %}
+
+<h2>Cambiar rol</h2>
+<form action="{% url 'pot:user_edit_role' target.id %}" method="post">{% csrf_token %}
+{{ role_form.as_p }}
+{% if request.GET.need_confirm_role %}<input type="hidden" name="confirm" value="1">{% endif %}
+<button class="btn btn-warning">Guardar rol</button></form>
+
+<h2>Estado cuenta</h2>
+{% if target.is_active %}
+<form action="{% url 'pot:user_deactivate' target.id %}" method="post" onsubmit="return confirm('¿Desactivar?');">{% csrf_token %}
+{% if request.GET.need_confirm_deactivate %}<input type="hidden" name="confirm" value="1">{% endif %}
+<button class="btn btn-danger">Desactivar</button></form>
+{% else %}
+<form action="{% url 'pot:user_reactivate' target.id %}" method="post">{% csrf_token %}<button class="btn btn-success">Reactivar</button></form>
+{% endif %}
+{% endif %}
+
+<h2>Auditoría</h2>
+<ul class="small">{% for a in audits %}<li>{{ a.created_at }} — {{ a.action }} — {{ a.details }}</li>{% empty %}<li>Sin registros</li>{% endfor %}</ul>
+{% endblock %}

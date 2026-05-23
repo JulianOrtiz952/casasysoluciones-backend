@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block title %}Inventario #{{ inventory.id }}{% endblock %}
+{% block content %}
+<h1>Inventario #{{ inventory.id }}</h1>
+<p>{{ inventory.property.code }} — {{ inventory.tenant.email }} — <strong>{{ inventory.get_status_display }}</strong></p>
+<p>Entrega: {{ inventory.delivery_date }}</p>
+<p>
+{% if user.is_staff_operative %}
+<a href="{% url 'pot:inventory_spaces' inventory.id %}" class="btn btn-primary">Espacios y fotos</a>
+<a href="{% url 'pot:inventory_pdf' inventory.id %}" class="btn btn-outline-secondary">PDF</a>
+{% if inventory.status == 'IN_PROGRESS' and inventory.spaces.count %}
+<form action="{% url 'pot:inventory_finalize' inventory.id %}" method="post" class="d-inline">{% csrf_token %}<button class="btn btn-warning">Finalizar → firma</button></form>
+{% endif %}
+{% if user.role == 'ADMIN' and inventory.status == 'OBSERVATIONS_PENDING' %}
+<form action="{% url 'pot:inventory_resolve_observations' inventory.id %}" method="post" class="d-inline">{% csrf_token %}<button class="btn btn-info">Volver a pendiente firma</button></form>
+{% endif %}
+{% endif %}
+</p>
+<ul>{% for s in inventory.spaces.all %}<li>{{ s.space_name }} — {{ s.get_condition_display }}</li>{% empty %}<li>Sin espacios</li>{% endfor %}</ul>
+{% endblock %}

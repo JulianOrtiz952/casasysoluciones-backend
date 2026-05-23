@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block title %}Login — POT{% endblock %}
+{% block content %}
+<h1>Entrar</h1>
+<form method="post" class="col-md-5">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <div class="mb-3">
+        <label class="form-label">Email</label>
+        {{ form.username }}
+    </div>
+    <div class="mb-3">
+        <label class="form-label">Contraseña</label>
+        {{ form.password }}
+    </div>
+    <button type="submit" class="btn btn-primary">Entrar</button>
+    <a href="{% url 'pot:password_reset' %}" class="btn btn-link">Olvidé contraseña</a>
+</form>
+{% endblock %}

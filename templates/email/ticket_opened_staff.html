@@ -1,0 +1,9 @@
+<!DOCTYPE html><html><body>
+<p>Se registró un nuevo ticket de daño.</p>
+<p><strong>Radicado:</strong> {{ public_code }}</p>
+<p><strong>Inmueble:</strong> {{ property_code }} — {{ property_address }}</p>
+<p><strong>Arrendatario:</strong> {{ tenant_name }}</p>
+<p><strong>Tipo:</strong> {{ damage_type }} | <strong>Prioridad:</strong> {{ priority }}</p>
+<p><strong>Descripción:</strong> {{ description }}</p>
+{% if panel_url %}<p><a href="{{ panel_url }}">Ir al panel</a></p>{% endif %}
+</body></html>

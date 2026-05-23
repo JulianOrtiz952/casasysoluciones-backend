@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block title %}Panel arrendatario{% endblock %}
+{% block content %}
+<h1>Tus inmuebles</h1>
+{% if not properties %}
+<p>Sin inmuebles asociados.</p>
+{% else %}
+<ul class="list-group">
+    {% for p in properties %}
+    <li class="list-group-item">{{ p.code }} — {{ p.address }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
+<p class="mt-3"><a href="{% url 'pot:my_inventories' %}">Inventarios pendientes de firma</a></p>
+{% endblock %}

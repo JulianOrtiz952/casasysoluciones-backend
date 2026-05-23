@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block title %}Panel{% endblock %}
+{% block content %}
+<h1>Panel administrativo</h1>
+<ul>
+    <li><a href="{% url 'pot:property_list' %}">Inmuebles</a></li>
+    <li><a href="{% url 'pot:property_create' %}">Alta inmueble</a></li>
+    <li><a href="{% url 'pot:inventory_create' %}">Nuevo inventario</a></li>
+    {% if user.role == 'ADMIN' %}
+    <li><a href="{% url 'pot:user_list' %}">Usuarios</a></li>
+    {% endif %}
+</ul>
+{% endblock %}
