@@ -128,6 +128,35 @@ Listado staff: `GET /api/v1/inventories/` con filtros `type`, `status`, `propert
 
 Condición de espacio: `GOOD`, `REGULAR`, `BAD`.
 
+## Módulo creación de tickets — HU-05 (RF-13 a RF-17)
+
+Solo arrendatarios (`TENANT`). Radicado autogenerado `TK-xxxxx`.
+
+| RF | Método | Endpoint | Notas |
+|----|--------|----------|-------|
+| RF-13 | `POST` | `/api/v1/tickets/mine/` | Estado `OPEN`; notifica admin + assistant por email |
+| RF-13 | `POST` | `/api/v1/tickets/mine/draft/` | Estado `DRAFT`; sin notificación |
+| RF-14 | body | `property_id` | Obligatorio si >1 inmueble activo; auto si solo uno |
+| RF-15 | body | `damage_type`, `damage_type_other` | Catálogo; `OTHER` exige texto (mín. 3 caracteres) |
+| RF-16 | body | `priority` | `LOW`, `MEDIUM`, `HIGH` obligatorio |
+| RF-17 | `POST` | `/api/v1/tickets/mine/{id}/attachments/` | Máx. 5 imágenes JPG/PNG ≤5 MB |
+
+Consulta arrendatario:
+
+- `GET /api/v1/tickets/mine/` — listado paginado (filtro opcional `status`)
+- `GET /api/v1/tickets/mine/{id}/` — detalle con adjuntos
+
+Body create (ejemplo):
+
+```json
+{
+  "property_id": 1,
+  "description": "Fuga en lavamanos",
+  "damage_type": "PLUMBING",
+  "priority": "HIGH"
+}
+```
+
 ## Nota de alcance
 
-Los módulos de tickets de negocio quedan para iteraciones posteriores según el plan.
+Gestión de tickets (estados, asignación, chat) queda para iteración 2.

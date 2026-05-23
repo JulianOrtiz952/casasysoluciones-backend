@@ -31,34 +31,15 @@ class CatalogView(APIView):
 
     @staticmethod
     def _ticket_statuses():
-        return [
-            {'value': 'DRAFT', 'label': 'Borrador'},
-            {'value': 'OPEN', 'label': 'Abierto'},
-            {'value': 'ACCEPTED', 'label': 'Aceptado'},
-            {'value': 'IN_PROGRESS', 'label': 'En proceso'},
-            {'value': 'REJECTED', 'label': 'Rechazado'},
-            {'value': 'CLOSED', 'label': 'Cerrado'},
-        ]
+        return CatalogView._choices(Ticket.Status)
 
     @staticmethod
     def _ticket_damage_types():
-        return [
-            {'value': 'PLUMBING', 'label': 'Plomería / Hidráulico'},
-            {'value': 'ELECTRICITY', 'label': 'Electricidad'},
-            {'value': 'LOCKSMITH', 'label': 'Cerrajería'},
-            {'value': 'STRUCTURE', 'label': 'Estructura'},
-            {'value': 'PAINTING', 'label': 'Pintura'},
-            {'value': 'CARPENTRY', 'label': 'Carpintería'},
-            {'value': 'OTHER', 'label': 'Otro'},
-        ]
+        return CatalogView._choices(Ticket.DamageType)
 
     @staticmethod
     def _ticket_priorities():
-        return [
-            {'value': 'LOW', 'label': 'Leve'},
-            {'value': 'MEDIUM', 'label': 'Importante'},
-            {'value': 'HIGH', 'label': 'Urgente'},
-        ]
+        return CatalogView._choices(Ticket.Priority)
 
     @staticmethod
     def _ticket_status_transitions():

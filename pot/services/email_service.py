@@ -115,6 +115,34 @@ def enviar_firma_completada_admins(inventory_obj):
         _send_html(admin_email, f'Inventario firmado - {inventory_obj.property.code}', 'email/inventory_signed_admin.html', ctx)
 
 
+def enviar_notificacion_ticket_apertura(ticket, request=None):
+    from pot.models import CustomUser
+
+    recipients = CustomUser.objects.filter(
+        role__in=(CustomUser.Role.ADMIN, CustomUser.Role.ASSISTANT),
+        is_active=True,
+    ).values_list('email', flat=True)
+    emails = list(recipients)
+    if not emails:
+        return
+    tenant_name = ''
+    if ticket.tenant:
+        tenant_name = ticket.tenant.get_full_name() or ticket.tenant.email
+    ctx = {
+        'public_code': ticket.public_code or str(ticket.pk),
+        'property_code': ticket.property.code,
+        'property_address': ticket.property.address,
+        'damage_type': ticket.get_damage_type_display(),
+        'priority': ticket.get_priority_display(),
+        'description': ticket.description[:500],
+        'tenant_name': tenant_name,
+        'panel_url': _abs_url(request, '/dashboard/'),
+    }
+    subject = f'Nuevo ticket {ctx["public_code"]} - {ctx["property_code"]}'
+    for email in emails:
+        _send_html(email, subject, 'email/ticket_opened_staff.html', ctx)
+
+
 def enviar_observaciones_inventario_admin(inventory_obj, observation_text):
     from pot.models import CustomUser
 

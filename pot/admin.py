@@ -11,6 +11,7 @@ from pot.models import (
     Property,
     PropertyHistory,
     Ticket,
+    TicketAttachment,
     UserAudit,
     UserPropertyAssociation,
 )
@@ -51,6 +52,7 @@ admin.site.register(UserAudit)
 admin.site.register(Property)
 admin.site.register(PropertyHistory)
 admin.site.register(Ticket)
+admin.site.register(TicketAttachment)
 admin.site.register(Inventory)
 admin.site.register(InventorySpace)
 admin.site.register(InventorySpacePhoto)

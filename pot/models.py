@@ -236,8 +236,26 @@ class PropertyHistory(models.Model):
 
 class Ticket(models.Model):
     class Status(models.TextChoices):
+        DRAFT = 'DRAFT', 'Borrador'
         OPEN = 'OPEN', 'Abierto'
+        ACCEPTED = 'ACCEPTED', 'Aceptado'
+        IN_PROGRESS = 'IN_PROGRESS', 'En proceso'
+        REJECTED = 'REJECTED', 'Rechazado'
         CLOSED = 'CLOSED', 'Cerrado'
+
+    class DamageType(models.TextChoices):
+        PLUMBING = 'PLUMBING', 'Plomería / Hidráulico'
+        ELECTRICITY = 'ELECTRICITY', 'Electricidad'
+        LOCKSMITH = 'LOCKSMITH', 'Cerrajería'
+        STRUCTURE = 'STRUCTURE', 'Estructura'
+        PAINTING = 'PAINTING', 'Pintura'
+        CARPENTRY = 'CARPENTRY', 'Carpintería'
+        OTHER = 'OTHER', 'Otro'
+
+    class Priority(models.TextChoices):
+        LOW = 'LOW', 'Leve'
+        MEDIUM = 'MEDIUM', 'Importante'
+        HIGH = 'HIGH', 'Urgente'
 
     property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='tickets')
     tenant = models.ForeignKey(
@@ -247,16 +265,68 @@ class Ticket(models.Model):
         blank=True,
         related_name='tickets',
     )
+    public_code = models.CharField(max_length=20, unique=True, blank=True, null=True)
     title = models.CharField(max_length=200, default='Ticket')
+    description = models.TextField(blank=True, default='')
+    damage_type = models.CharField(
+        max_length=20,
+        choices=DamageType.choices,
+        default=DamageType.OTHER,
+    )
+    damage_type_other = models.CharField(max_length=200, blank=True, default='')
+    priority = models.CharField(
+        max_length=10,
+        choices=Priority.choices,
+        default=Priority.MEDIUM,
+    )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
+    assigned_contractor_name = models.CharField(max_length=200, blank=True, default='')
+    rejection_reason = models.TextField(blank=True, default='')
+    confirmation_deadline_at = models.DateTimeField(null=True, blank=True)
+    closed_automatically = models.BooleanField(default=False)
+    tenant_confirmed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ['-created_at']
 
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new and not self.public_code:
+            self.public_code = f'TK-{self.pk:05d}'
+            super().save(update_fields=['public_code'])
+
     def __str__(self):
-        return f'{self.property.code} - {self.title}'
+        return f'{self.public_code or self.pk} - {self.property.code} - {self.title}'
+
+    def is_editable_by_tenant(self):
+        return self.status in (self.Status.DRAFT, self.Status.OPEN)
+
+
+def ticket_attachment_upload(instance, filename):
+    code = instance.ticket.public_code or f'id-{instance.ticket_id}'
+    return f'tickets/{code}/{timezone.now().timestamp()}_{filename}'
+
+
+class TicketAttachment(models.Model):
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='attachments')
+    image = models.ImageField(upload_to=ticket_attachment_upload, max_length=500)
+    uploaded_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ticket_attachments_uploaded',
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['uploaded_at']
+
+    def __str__(self):
+        return f'{self.ticket.public_code} - adjunto {self.pk}'
 
 
 class Inventory(models.Model):

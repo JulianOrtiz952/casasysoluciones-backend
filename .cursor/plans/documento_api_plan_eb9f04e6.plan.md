@@ -16,7 +16,7 @@ todos:
     status: completed
   - id: i1-mod-creacion-tickets
     content: "Iteración 1 — Creación tickets HU-05: RF-13 a RF-17 — crear, inmueble, categoría, prioridad, max 5 adjuntos, notificación apertura"
-    status: pending
+    status: completed
   - id: i1-pruebas
     content: "Iteración 1 — Pruebas: CP-RF-01 a CP-RF-17 (casos doc ingeniería) en api/tests/test_i1_*.py"
     status: pending
