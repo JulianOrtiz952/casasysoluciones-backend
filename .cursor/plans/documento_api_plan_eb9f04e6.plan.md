@@ -10,7 +10,7 @@ todos:
     status: completed
   - id: i1-mod-inmuebles
     content: "Iteración 1 — Gestión inmuebles HU-02: RF-06 RF-07 — CRUD, código único, historial por inmueble (tickets/inventarios/arrendatarios)"
-    status: pending
+    status: completed
   - id: i1-mod-inventario-inicial
     content: "Iteración 1 — Inventario inicial HU-03/HU-04: RF-08 a RF-12 — espacios dinámicos, fotos, PDF, firma RF-11, observaciones arrendatario, plantillas por tipo inmueble"
     status: pending

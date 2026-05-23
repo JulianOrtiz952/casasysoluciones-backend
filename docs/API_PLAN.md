@@ -78,6 +78,24 @@ Adicionales:
 - `GET /api/v1/tenants/` — listado de arrendatarios
 - `DELETE /api/v1/tenants/{id}/properties/{property_id}/` — desasociar inmueble
 
+### Gestión de inmuebles (HU-02, RF-06, RF-07)
+
+Personal operativo (`ADMIN` o `ASSISTANT`). Lógica en `pot/services/property_service.py`.
+
+| RF | Método | Ruta |
+|----|--------|------|
+| RF-06 | `POST` | `/api/v1/properties/` — dirección única; `code` autogenerado (`PRO-xxxxx`); estado inicial `AVAILABLE` |
+| RF-07 | `GET` | `/api/v1/properties/{id}/history/` — historial cronológico (tickets, inventarios, arrendatarios) |
+
+Adicionales:
+
+- `GET /api/v1/properties/` — listado paginado (`status`, `type`, `city`, `search`)
+- `GET /api/v1/properties/{id}/` — detalle con arrendatario activo
+- `PATCH /api/v1/properties/{id}/` — actualizar datos y estado (registra evento si cambia estado)
+- `GET /api/v1/properties/stats/` — conteos por estado y tipo
+
+Filtros de historial: `date_from`, `date_to`, `event_type`, `tenant_id`.
+
 ## Nota de alcance
 
-Los módulos de inmuebles, inventarios y tickets de negocio quedan para iteraciones posteriores según el plan.
+Los módulos de inventarios y tickets de negocio quedan para iteraciones posteriores según el plan.
