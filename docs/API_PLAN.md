@@ -58,6 +58,26 @@ Se incluye `RunPython` para poblar `public_code` en usuarios existentes.
 - Paginación estándar (`api.v1.pagination.StandardResultsSetPagination`).
 - Inclusión de `token_blacklist` para invalidación de refresh tokens.
 
+### Gestión de usuarios (HU-01, RF-02 a RF-05)
+
+Solo rol `ADMIN`. Lógica en `pot/services/user_service.py`.
+
+| RF | Método | Ruta |
+|----|--------|------|
+| RF-02 | `POST` | `/api/v1/users/` — crea arrendatario, asocia inmuebles, envía contraseña temporal por correo |
+| RF-03 | `PATCH` | `/api/v1/users/{id}/role/` — cambio de rol; `confirm: true` si hay tickets abiertos |
+| RF-04 | `POST` | `/api/v1/tenants/{id}/properties/` — asociar inmueble (bloquea doble arrendatario activo) |
+| RF-05 | `POST` | `/api/v1/users/{id}/deactivate/` — desactiva sin borrar; desvincula inmuebles |
+
+Adicionales:
+
+- `GET /api/v1/users/` — listado paginado (`role`, `active`, `search`)
+- `GET /api/v1/users/{id}/` — detalle con asociaciones y auditoría reciente
+- `PATCH /api/v1/users/{id}/` — actualizar perfil (nombre, teléfono, documento)
+- `GET /api/v1/users/stats/` — conteos por rol y estado
+- `GET /api/v1/tenants/` — listado de arrendatarios
+- `DELETE /api/v1/tenants/{id}/properties/{property_id}/` — desasociar inmueble
+
 ## Nota de alcance
 
-Esta iteración implementa la base transversal solicitada (estructura `api/v1`, auth, RBAC, migraciones y catálogos). Los módulos funcionales de usuarios, inmuebles, inventarios y tickets de negocio quedan para iteraciones posteriores según el plan.
+Los módulos de inmuebles, inventarios y tickets de negocio quedan para iteraciones posteriores según el plan.

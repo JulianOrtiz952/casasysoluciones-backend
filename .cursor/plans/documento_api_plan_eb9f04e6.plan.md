@@ -7,7 +7,7 @@ todos:
     status: completed
   - id: i1-mod-usuarios
     content: "Iteración 1 — Gestión usuarios HU-01: RF-02 a RF-05 — CRUD solo ADMIN, asociación multi-inmueble, desactivar sin borrar historial, contraseña temporal por correo"
-    status: pending
+    status: completed
   - id: i1-mod-inmuebles
     content: "Iteración 1 — Gestión inmuebles HU-02: RF-06 RF-07 — CRUD, código único, historial por inmueble (tickets/inventarios/arrendatarios)"
     status: pending
