@@ -15,8 +15,65 @@ from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Image as RLImage
 from reportlab.platypus import HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from pot.models import PropertyHistory
+from django.db import transaction
+
+from pot.models import (
+    CustomUser,
+    Inventory,
+    InventorySpace,
+    InventorySpacePhoto,
+    InventoryTenantObservation,
+    Property,
+    PropertyHistory,
+    UserPropertyAssociation,
+)
 from pot.services.property_service import registrar_evento_propiedad
+
+
+class InventoryServiceError(Exception):
+    def __init__(self, code, message, details=None):
+        self.code = code
+        self.message = message
+        self.details = details or {}
+        super().__init__(message)
+
+
+SPACE_TEMPLATES_BY_PROPERTY_TYPE = {
+    Property.Type.APARTMENT: [
+        'Sala',
+        'Cocina',
+        'Baño principal',
+        'Baño auxiliar',
+        'Alcoba principal',
+        'Alcoba secundaria',
+        'Balcón',
+        'Zona de ropas',
+    ],
+    Property.Type.HOUSE: [
+        'Sala',
+        'Comedor',
+        'Cocina',
+        'Baño principal',
+        'Habitación 1',
+        'Habitación 2',
+        'Patio',
+        'Garaje',
+    ],
+    Property.Type.LOCAL: [
+        'Área principal',
+        'Baño',
+        'Bodega',
+        'Fachada',
+        'Cocineta',
+    ],
+    Property.Type.WAREHOUSE: [
+        'Bodega principal',
+        'Oficina',
+        'Baño',
+        'Parqueadero',
+        'Mezzanine',
+    ],
+}
 
 
 def _read_fieldfile_bytes(fieldfile):
@@ -360,5 +417,252 @@ def registrar_evento_firma_en_propiedad(inventory_obj):
             'inventory_id': inventory_obj.id,
             'inventory_type': inventory_obj.inventory_type,
             'signed_date': inventory_obj.signed_at.isoformat() if inventory_obj.signed_at else None,
+        },
+    )
+
+
+def obtener_plantillas_espacios(property_type):
+    if property_type not in dict(Property.Type.choices):
+        raise InventoryServiceError('invalid_property_type', 'Tipo de inmueble no válido.')
+    names = SPACE_TEMPLATES_BY_PROPERTY_TYPE.get(property_type, [])
+    return [
+        {
+            'space_name': name,
+            'suggested_condition': InventorySpace.Condition.GOOD,
+            'order': idx,
+        }
+        for idx, name in enumerate(names)
+    ]
+
+
+def usuario_puede_acceder_inventario(user, inventory):
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_staff_operative():
+        return True
+    return user.role == CustomUser.Role.TENANT and inventory.tenant_id == user.pk
+
+
+def _validar_editable(inventory):
+    if not inventory.is_editable():
+        raise InventoryServiceError('not_editable', 'El inventario no está en edición.')
+
+
+def crear_inventario_inicial(created_by, *, property_id, tenant_id, delivery_date, observations=None):
+    prop = Property.objects.filter(pk=property_id).first()
+    if not prop:
+        raise InventoryServiceError('property_not_found', 'Inmueble no encontrado.')
+    tenant = CustomUser.objects.filter(pk=tenant_id, role=CustomUser.Role.TENANT).first()
+    if not tenant:
+        raise InventoryServiceError('tenant_not_found', 'Arrendatario no encontrado.')
+    if Inventory.objects.filter(
+        property=prop,
+        inventory_type=Inventory.Type.INITIAL,
+        status=Inventory.Status.ACCEPTED,
+    ).exists():
+        raise InventoryServiceError(
+            'initial_already_accepted',
+            'Ya existe un inventario inicial aceptado para este inmueble.',
+        )
+    if not UserPropertyAssociation.objects.filter(
+        user=tenant,
+        property=prop,
+        dissociated_at__isnull=True,
+    ).exists():
+        raise InventoryServiceError(
+            'tenant_not_associated',
+            'El arrendatario no está asociado activamente a este inmueble.',
+        )
+    try:
+        inv = Inventory.objects.create(
+            property=prop,
+            tenant=tenant,
+            inventory_type=Inventory.Type.INITIAL,
+            status=Inventory.Status.IN_PROGRESS,
+            delivery_date=delivery_date,
+            observations=observations or '',
+            created_by=created_by,
+        )
+    except Exception as exc:
+        raise InventoryServiceError(
+            'duplicate_inventory',
+            'Ya existe un inventario para esta combinación inmueble/arrendatario/tipo.',
+        ) from exc
+    registrar_evento_propiedad(
+        prop,
+        PropertyHistory.EventType.INVENTORY_CREATED,
+        f'Inventario inicial #{inv.pk}',
+        created_by=created_by,
+        related_user=tenant,
+        details={'inventory_id': inv.pk},
+    )
+    return inv
+
+
+def actualizar_paso_1(inventory, *, delivery_date=None, observations=None):
+    _validar_editable(inventory)
+    fields = []
+    if delivery_date is not None:
+        inventory.delivery_date = delivery_date
+        fields.append('delivery_date')
+    if observations is not None:
+        inventory.observations = observations
+        fields.append('observations')
+    if fields:
+        fields.append('updated_at')
+        inventory.save(update_fields=fields)
+    return inventory
+
+
+def agregar_espacio(inventory, *, space_name, condition, observations=None):
+    _validar_editable(inventory)
+    if condition not in dict(InventorySpace.Condition.choices):
+        raise InventoryServiceError('invalid_condition', 'Condición de espacio no válida.')
+    space_name = (space_name or '').strip()
+    if not space_name:
+        raise InventoryServiceError('space_name_required', 'El nombre del espacio es obligatorio.')
+    return InventorySpace.objects.create(
+        inventory=inventory,
+        space_name=space_name,
+        condition=condition,
+        observations=observations or '',
+        order=inventory.spaces.count(),
+    )
+
+
+@transaction.atomic
+def reemplazar_espacios(inventory, spaces_data):
+    _validar_editable(inventory)
+    if not isinstance(spaces_data, list):
+        raise InventoryServiceError('invalid_spaces', 'Se esperaba una lista de espacios.')
+    inventory.spaces.all().delete()
+    created = []
+    for idx, item in enumerate(spaces_data):
+        space_name = (item.get('space_name') or '').strip()
+        condition = item.get('condition')
+        if not space_name:
+            raise InventoryServiceError('space_name_required', f'Espacio #{idx + 1}: nombre obligatorio.')
+        if condition not in dict(InventorySpace.Condition.choices):
+            raise InventoryServiceError('invalid_condition', f'Espacio "{space_name}": condición no válida.')
+        created.append(
+            InventorySpace.objects.create(
+                inventory=inventory,
+                space_name=space_name,
+                condition=condition,
+                observations=item.get('observations') or '',
+                order=item.get('order', idx),
+            )
+        )
+    return created
+
+
+def eliminar_espacio(space):
+    inventory = space.inventory
+    _validar_editable(inventory)
+    space.delete()
+
+
+def subir_foto_espacio(space, *, image, description=None, uploaded_by=None):
+    _validar_editable(space.inventory)
+    ok, err = validar_archivo_imagen(image)
+    if not ok:
+        raise InventoryServiceError('invalid_image', err)
+    photo = InventorySpacePhoto.objects.create(
+        space=space,
+        image=image,
+        description=description or '',
+        uploaded_by=uploaded_by,
+    )
+    try:
+        guardar_thumbnail_foto(photo)
+    except Exception:
+        pass
+    return photo
+
+
+def eliminar_foto(photo):
+    _validar_editable(photo.space.inventory)
+    photo.delete()
+
+
+def guardar_borrador(inventory):
+    _validar_editable(inventory)
+    inventory.save(update_fields=['updated_at'])
+    return inventory
+
+
+def finalizar_inventario(inventory, request):
+    if inventory.status != Inventory.Status.IN_PROGRESS:
+        raise InventoryServiceError('invalid_status', 'Solo se puede finalizar un inventario en registro.')
+    if inventory.spaces.count() < 1:
+        raise InventoryServiceError('spaces_required', 'Agrega al menos un espacio antes de finalizar.')
+    inventory.status = Inventory.Status.PENDING_SIGNATURE
+    inventory.save(update_fields=['status', 'updated_at'])
+    notificar_inventario_pendiente_firma(inventory, request)
+    return inventory
+
+
+def firmar_inventario(inventory, tenant, request):
+    if inventory.tenant_id != tenant.pk:
+        raise InventoryServiceError('not_owner', 'No es el arrendatario de este inventario.')
+    if inventory.status != Inventory.Status.PENDING_SIGNATURE:
+        raise InventoryServiceError('invalid_status', 'El inventario no está pendiente de firma.')
+    if inventory.spaces.count() < 1:
+        raise InventoryServiceError('incomplete_review', 'Debe revisar todos los espacios antes de firmar.')
+    from pot.services.signature_service import completar_flujo_firma
+
+    completar_flujo_firma(inventory, tenant, request)
+    return inventory
+
+
+def registrar_observaciones_arrendatario(inventory, tenant, observation_text):
+    if inventory.tenant_id != tenant.pk:
+        raise InventoryServiceError('not_owner', 'No es el arrendatario de este inventario.')
+    if inventory.status != Inventory.Status.PENDING_SIGNATURE:
+        raise InventoryServiceError('invalid_status', 'El inventario no está pendiente de firma.')
+    text = (observation_text or '').strip()
+    if not text:
+        raise InventoryServiceError('observation_required', 'Las observaciones son obligatorias.')
+    InventoryTenantObservation.objects.create(
+        inventory=inventory,
+        observation_text=text,
+        created_by=tenant,
+    )
+    inventory.status = Inventory.Status.OBSERVATIONS_PENDING
+    inventory.save(update_fields=['status', 'updated_at'])
+    registrar_evento_propiedad(
+        inventory.property,
+        PropertyHistory.EventType.TENANT_OBSERVATIONS,
+        'Arrendatario registró observaciones',
+        created_by=tenant,
+        related_user=tenant,
+        details={'inventory_id': inventory.pk},
+    )
+    from pot.services.email_service import enviar_observaciones_inventario_admin
+
+    enviar_observaciones_inventario_admin(inventory, text)
+    return inventory
+
+
+def resolver_observaciones(inventory, request):
+    if inventory.status != Inventory.Status.OBSERVATIONS_PENDING:
+        raise InventoryServiceError('invalid_status', 'El inventario no tiene observaciones pendientes.')
+    inventory.status = Inventory.Status.PENDING_SIGNATURE
+    inventory.save(update_fields=['status', 'updated_at'])
+    notificar_inventario_pendiente_firma(inventory, request)
+    return inventory
+
+
+def registrar_log_generacion_pdf(inventory, user):
+    registrar_evento_propiedad(
+        inventory.property,
+        PropertyHistory.EventType.INVENTORY_CREATED,
+        f'PDF de inventario #{inventory.pk} generado',
+        created_by=user,
+        related_user=inventory.tenant,
+        details={
+            'inventory_id': inventory.pk,
+            'document': 'inventory_pdf',
+            'inventory_type': inventory.inventory_type,
         },
     )

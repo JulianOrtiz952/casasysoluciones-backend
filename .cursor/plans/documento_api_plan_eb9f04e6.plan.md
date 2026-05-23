@@ -13,7 +13,7 @@ todos:
     status: completed
   - id: i1-mod-inventario-inicial
     content: "Iteración 1 — Inventario inicial HU-03/HU-04: RF-08 a RF-12 — espacios dinámicos, fotos, PDF, firma RF-11, observaciones arrendatario, plantillas por tipo inmueble"
-    status: pending
+    status: completed
   - id: i1-mod-creacion-tickets
     content: "Iteración 1 — Creación tickets HU-05: RF-13 a RF-17 — crear, inmueble, categoría, prioridad, max 5 adjuntos, notificación apertura"
     status: pending

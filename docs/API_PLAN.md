@@ -96,6 +96,38 @@ Adicionales:
 
 Filtros de historial: `date_from`, `date_to`, `event_type`, `tenant_id`.
 
+### Inventario inicial (HU-03 / HU-04, RF-08 a RF-12)
+
+Personal operativo crea y edita; arrendatario firma u observa. Lógica en `pot/services/inventory_service.py` y `pot/services/signature_service.py`.
+
+| RF | Método | Ruta |
+|----|--------|------|
+| RF-08 | `POST` | `/api/v1/inventories/` — `type=INITIAL`, estado `IN_PROGRESS`; requiere inmueble y arrendatario asociado activo |
+| RF-09 | `POST` | `/api/v1/inventories/{id}/spaces/` — agregar espacio dinámico |
+| RF-09 | `DELETE` | `/api/v1/inventories/{id}/spaces/{space_id}/` |
+| RF-09 | `GET` | `/api/v1/inventories/space-templates/?property_type=` — plantilla sugerida por tipo de inmueble |
+| RF-10 | `POST` | `/api/v1/inventories/{id}/spaces/{space_id}/photos/` — JPG/PNG ≤ 5 MB |
+| RF-11 | `POST` | `/api/v1/inventories/{id}/sign/` — firma del arrendatario (inventario `PENDING_SIGNATURE`) |
+| RF-11 alt | `POST` | `/api/v1/inventories/{id}/observations/` — observaciones del arrendatario |
+| RF-12 | `GET` | `/api/v1/inventories/{id}/pdf/` — PDF con espacios y fotos; registro en historial del inmueble |
+
+Wizard y flujo staff:
+
+- `PATCH /api/v1/inventories/{id}/step/1/` — fecha de entrega y observaciones generales
+- `PUT /api/v1/inventories/{id}/step/2/spaces/` — reemplazo masivo de espacios
+- `POST /api/v1/inventories/{id}/save-draft/`
+- `POST /api/v1/inventories/{id}/finalize/` → `PENDING_SIGNATURE` (notifica al arrendatario)
+- `POST /api/v1/inventories/{id}/resolve-observations/` — solo `ADMIN`; vuelve a `PENDING_SIGNATURE`
+
+Arrendatario:
+
+- `GET /api/v1/inventories/mine/` — inventarios pendientes de firma
+- `GET /api/v1/inventories/{id}/` — detalle del propio inventario
+
+Listado staff: `GET /api/v1/inventories/` con filtros `type`, `status`, `property_id`, `tenant_id`.
+
+Condición de espacio: `GOOD`, `REGULAR`, `BAD`.
+
 ## Nota de alcance
 
-Los módulos de inventarios y tickets de negocio quedan para iteraciones posteriores según el plan.
+Los módulos de tickets de negocio quedan para iteraciones posteriores según el plan.
