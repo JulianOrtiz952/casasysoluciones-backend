@@ -1,3 +1,5 @@
+"""Pruebas i1 usuarios — CP-RF-02 a CP-RF-05 (RF-02 a RF-05)."""
+
 from unittest.mock import patch
 
 from django.core import mail
@@ -65,7 +67,8 @@ class UserManagementAPITests(TestCase):
         )
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_admin_creates_tenant_and_sends_email(self):
+    def test_cp_rf_02_admin_creates_tenant_sends_email_rf02(self):
+        """CP-RF-02: solo ADMIN crea arrendatario y envía contraseña temporal por correo."""
         self.client.force_authenticate(user=self.admin)
         r = self.client.post(
             '/api/v1/users/',
@@ -88,7 +91,8 @@ class UserManagementAPITests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn('tenant.new@test.com', mail.outbox[0].to)
 
-    def test_cannot_associate_property_with_active_tenant(self):
+    def test_cp_rf_04_blocks_double_tenant_on_property_rf04(self):
+        """CP-RF-04: bloquea doble arrendatario activo en el mismo inmueble."""
         tenant = CustomUser.objects.create_user(
             email='ocupado@test.com',
             password='x',
@@ -110,7 +114,8 @@ class UserManagementAPITests(TestCase):
         self.assertEqual(r.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(r.json()['error']['code'], 'property_already_rented')
 
-    def test_associate_tenant_property_rf04(self):
+    def test_cp_rf_04_associate_tenant_property_rf04(self):
+        """CP-RF-04: asociar inmueble a arrendatario (multi-inmueble)."""
         tenant = CustomUser.objects.create_user(
             email='multi@test.com',
             password='x',
@@ -142,7 +147,8 @@ class UserManagementAPITests(TestCase):
         assoc = UserPropertyAssociation.objects.get(user=tenant, property=self.prop1)
         self.assertIsNotNone(assoc.dissociated_at)
 
-    def test_deactivate_preserves_user_and_history_rf05(self):
+    def test_cp_rf_05_deactivate_preserves_history_rf05(self):
+        """CP-RF-05: desactivar arrendatario sin borrar historial ni desvincular inmuebles."""
         tenant = CustomUser.objects.create_user(
             email='desact@test.com',
             password='x',
@@ -179,7 +185,8 @@ class UserManagementAPITests(TestCase):
         )
         self.assertEqual(r2.status_code, status.HTTP_200_OK)
 
-    def test_role_change_warns_on_open_tickets_rf03(self):
+    def test_cp_rf_03_role_change_warns_open_tickets_rf03(self):
+        """CP-RF-03: cambio de rol con advertencia si hay tickets abiertos."""
         tenant = CustomUser.objects.create_user(
             email='rol@test.com',
             password='x',

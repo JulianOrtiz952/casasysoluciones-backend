@@ -1,3 +1,5 @@
+"""Pruebas i1 creación de tickets — CP-RF-13 a CP-RF-17 (RF-13 a RF-17)."""
+
 import io
 from unittest.mock import patch
 
@@ -87,7 +89,8 @@ class TicketCreationAPITests(TestCase):
         )
         UserPropertyAssociation.objects.create(user=self.tenant, property=self.property1)
 
-    def test_create_ticket_rf13(self):
+    def test_cp_rf_13_create_open_ticket_notify_staff_rf13(self):
+        """CP-RF-13: crear ticket OPEN con radicado TK-xxxxx y notificar admin + assistant."""
         self.client.force_authenticate(user=self.tenant)
         r = self.client.post('/api/v1/tickets/mine/', _ticket_payload(), format='json')
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
@@ -111,28 +114,28 @@ class TicketCreationAPITests(TestCase):
         self.assertEqual(r.data['status'], Ticket.Status.DRAFT)
         self.assertEqual(len(mail.outbox), 0)
 
-    def test_property_id_auto_rf14_single_property(self):
+    def test_cp_rf_14_property_id_auto_and_required_rf14(self):
+        """CP-RF-14: property_id auto con un inmueble; obligatorio si hay varios."""
         self.client.force_authenticate(user=self.tenant)
-        r = self.client.post('/api/v1/tickets/mine/', _ticket_payload(), format='json')
-        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(r.data['property']['id'], self.property1.id)
+        r_single = self.client.post('/api/v1/tickets/mine/', _ticket_payload(), format='json')
+        self.assertEqual(r_single.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(r_single.data['property']['id'], self.property1.id)
 
-    def test_property_id_required_rf14_multiple_properties(self):
         UserPropertyAssociation.objects.create(user=self.tenant, property=self.property2)
-        self.client.force_authenticate(user=self.tenant)
-        r = self.client.post('/api/v1/tickets/mine/', _ticket_payload(), format='json')
-        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(r.json()['error']['code'], 'property_id_required')
+        r_missing = self.client.post('/api/v1/tickets/mine/', _ticket_payload(), format='json')
+        self.assertEqual(r_missing.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(r_missing.json()['error']['code'], 'property_id_required')
 
-        r2 = self.client.post(
+        r_multi = self.client.post(
             '/api/v1/tickets/mine/',
             _ticket_payload(property_id=self.property2.id),
             format='json',
         )
-        self.assertEqual(r2.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(r2.data['property']['id'], self.property2.id)
+        self.assertEqual(r_multi.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(r_multi.data['property']['id'], self.property2.id)
 
-    def test_damage_type_other_rf15(self):
+    def test_cp_rf_15_damage_type_catalog_and_other_rf15(self):
+        """CP-RF-15: catálogo damage_type; OTHER exige damage_type_other."""
         self.client.force_authenticate(user=self.tenant)
         r = self.client.post(
             '/api/v1/tickets/mine/',
@@ -153,7 +156,8 @@ class TicketCreationAPITests(TestCase):
         self.assertEqual(r2.status_code, status.HTTP_201_CREATED)
         self.assertEqual(r2.data['damage_type_other'], 'Daño en persiana motorizada')
 
-    def test_priority_required_rf16(self):
+    def test_cp_rf_16_priority_required_rf16(self):
+        """CP-RF-16: prioridad LOW/MEDIUM/HIGH obligatoria al crear ticket."""
         self.client.force_authenticate(user=self.tenant)
         r = self.client.post(
             '/api/v1/tickets/mine/',
@@ -165,7 +169,8 @@ class TicketCreationAPITests(TestCase):
         )
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_attachments_rf17(self):
+    def test_cp_rf_17_attachments_limit_and_format_rf17(self):
+        """CP-RF-17: máx. 5 adjuntos JPG/PNG ≤5 MB; rechaza formatos inválidos."""
         self.client.force_authenticate(user=self.tenant)
         create_r = self.client.post('/api/v1/tickets/mine/', _ticket_payload(), format='json')
         ticket_id = create_r.data['id']
@@ -188,18 +193,14 @@ class TicketCreationAPITests(TestCase):
         self.assertEqual(r6.json()['error']['code'], 'max_attachments')
         self.assertEqual(TicketAttachment.objects.filter(ticket_id=ticket_id).count(), 5)
 
-    def test_invalid_image_format_rf17(self):
-        self.client.force_authenticate(user=self.tenant)
-        create_r = self.client.post('/api/v1/tickets/mine/', _ticket_payload(), format='json')
-        ticket_id = create_r.data['id']
         bad = SimpleUploadedFile('doc.pdf', b'%PDF', content_type='application/pdf')
-        r = self.client.post(
+        r_bad = self.client.post(
             f'/api/v1/tickets/mine/{ticket_id}/attachments/',
             {'image': bad},
             format='multipart',
         )
-        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(r.json()['error']['code'], ('invalid_image', 'validation_error'))
+        self.assertEqual(r_bad.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(r_bad.json()['error']['code'], ('invalid_image', 'validation_error'))
 
     def test_list_and_retrieve_mine(self):
         self.client.force_authenticate(user=self.tenant)

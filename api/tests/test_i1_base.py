@@ -1,3 +1,5 @@
+"""Pruebas base i1 — CP-RF-01 (RF-01 autenticación)."""
+
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -35,41 +37,48 @@ class V1AuthAndCatalogTests(TestCase):
         ):
             self.assertIn(key, r.data)
 
-    def test_login_with_email(self):
-        r = self.client.post(
+    def test_cp_rf_01_login_email_cedula_lockout_rf01(self):
+        """CP-RF-01: login con email o cédula, error claro y bloqueo por intentos fallidos."""
+        r_email = self.client.post(
             '/api/v1/auth/login/',
             {'email': 'tenant@test.com', 'password': self.password},
             format='json',
         )
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
-        self.assertIn('access', r.data)
-        self.assertIn('refresh', r.data)
-        self.assertEqual(r.data['user']['email'], 'tenant@test.com')
+        self.assertEqual(r_email.status_code, status.HTTP_200_OK)
+        self.assertIn('access', r_email.data)
+        self.assertIn('refresh', r_email.data)
+        self.assertEqual(r_email.data['user']['email'], 'tenant@test.com')
 
-    def test_login_with_document_number(self):
-        r = self.client.post(
+        r_doc = self.client.post(
             '/api/v1/auth/login/',
             {'document_number': '1020304050', 'password': self.password},
             format='json',
         )
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
-        self.assertIn('access', r.data)
+        self.assertEqual(r_doc.status_code, status.HTTP_200_OK)
+        self.assertIn('access', r_doc.data)
 
-    def test_login_invalid_locks_after_limit(self):
-        for _ in range(3):
+        r_bad = self.client.post(
+            '/api/v1/auth/login/',
+            {'email': 'tenant@test.com', 'password': 'wrong'},
+            format='json',
+        )
+        self.assertEqual(r_bad.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(r_bad.json()['error']['code'], 'invalid_credentials')
+
+        for _ in range(2):
             r = self.client.post(
                 '/api/v1/auth/login/',
                 {'email': 'tenant@test.com', 'password': 'wrong'},
                 format='json',
             )
             self.assertEqual(r.status_code, status.HTTP_401_UNAUTHORIZED)
-        r = self.client.post(
+        r_locked = self.client.post(
             '/api/v1/auth/login/',
             {'email': 'tenant@test.com', 'password': self.password},
             format='json',
         )
-        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(r.json()['error']['code'], 'account_locked')
+        self.assertEqual(r_locked.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(r_locked.json()['error']['code'], 'account_locked')
 
     def test_me_requires_auth(self):
         r = self.client.get('/api/v1/auth/me/')

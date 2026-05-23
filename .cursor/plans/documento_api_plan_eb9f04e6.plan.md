@@ -4,7 +4,7 @@ overview: Implementar la API REST alineada con la EDT, HU/RF y actas, reutilizan
 todos:
   - id: i1-base
     content: "Iteración 1 — Base: api/v1 ADITIVA (no reemplaza pot/ ni legacy), auth RF-01 reutilizando auth_service, RBAC, migraciones, catálogos, docs/API_PLAN.md"
-    status: completed
+    status: in_progress
   - id: i1-mod-usuarios
     content: "Iteración 1 — Gestión usuarios HU-01: RF-02 a RF-05 — CRUD solo ADMIN, asociación multi-inmueble, desactivar sin borrar historial, contraseña temporal por correo"
     status: completed
@@ -19,7 +19,7 @@ todos:
     status: completed
   - id: i1-pruebas
     content: "Iteración 1 — Pruebas: CP-RF-01 a CP-RF-17 (casos doc ingeniería) en api/tests/test_i1_*.py"
-    status: pending
+    status: completed
   - id: i1-despliegue
     content: "Iteración 1 — Despliegue parcial: OpenAPI i1, legacy, import Excel inicial RF carga datos, checklist env"
     status: pending

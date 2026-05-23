@@ -1,3 +1,5 @@
+"""Pruebas i1 inventario inicial — CP-RF-08 a CP-RF-12 (RF-08 a RF-12)."""
+
 import io
 from unittest.mock import patch
 
@@ -83,7 +85,8 @@ class InventoryInitialAPITests(TestCase):
             format='json',
         )
 
-    def test_create_initial_inventory_rf08(self):
+    def test_cp_rf_08_create_initial_inventory_rf08(self):
+        """CP-RF-08: crear inventario INITIAL en IN_PROGRESS con arrendatario asociado."""
         r = self._create_inventory()
         self.assertEqual(r.status_code, status.HTTP_201_CREATED)
         self.assertEqual(r.data['status'], Inventory.Status.IN_PROGRESS)
@@ -116,14 +119,32 @@ class InventoryInitialAPITests(TestCase):
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(r.json()['error']['code'], 'tenant_not_associated')
 
-    def test_space_templates_rf09(self):
+    def test_cp_rf_09_space_templates_and_dynamic_spaces_rf09(self):
+        """CP-RF-09: plantillas por tipo de inmueble y espacios dinámicos (crear/eliminar)."""
         self.client.force_authenticate(user=self.assistant)
-        r = self.client.get('/api/v1/inventories/space-templates/?property_type=APARTMENT')
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
-        self.assertGreaterEqual(len(r.data['spaces']), 5)
-        self.assertEqual(r.data['spaces'][0]['space_name'], 'Sala')
+        r_tpl = self.client.get('/api/v1/inventories/space-templates/?property_type=APARTMENT')
+        self.assertEqual(r_tpl.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(r_tpl.data['spaces']), 5)
+        self.assertEqual(r_tpl.data['spaces'][0]['space_name'], 'Sala')
 
-    def test_dynamic_spaces_and_photos_rf09_rf10(self):
+        create_r = self._create_inventory()
+        inv_id = create_r.data['id']
+        r = self.client.post(
+            f'/api/v1/inventories/{inv_id}/spaces/',
+            {
+                'space_name': 'Sala',
+                'condition': InventorySpace.Condition.GOOD,
+                'observations': 'Piso en buen estado',
+            },
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        space_id = r.data['created_space_id']
+        r_del = self.client.delete(f'/api/v1/inventories/{inv_id}/spaces/{space_id}/')
+        self.assertEqual(r_del.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_cp_rf_10_photo_upload_and_validation_rf10(self):
+        """CP-RF-10: subir fotos JPG/PNG ≤5 MB y rechazar archivos inválidos."""
         create_r = self._create_inventory()
         inv_id = create_r.data['id']
         self.client.force_authenticate(user=self.assistant)
@@ -145,8 +166,30 @@ class InventoryInitialAPITests(TestCase):
             format='multipart',
         )
         self.assertEqual(r_photo.status_code, status.HTTP_201_CREATED)
-        r_del = self.client.delete(f'/api/v1/inventories/{inv_id}/spaces/{space_id}/')
-        self.assertEqual(r_del.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_cp_rf_10_rejects_oversized_image_rf10(self):
+        """CP-RF-10 flujo alterno: rechaza imagen mayor a 5 MB."""
+        create_r = self._create_inventory()
+        inv_id = create_r.data['id']
+        self.client.force_authenticate(user=self.admin)
+        r_space = self.client.post(
+            f'/api/v1/inventories/{inv_id}/spaces/',
+            {'space_name': 'Sala', 'condition': 'GOOD'},
+            format='json',
+        )
+        space_id = r_space.data['created_space_id']
+        bad = SimpleUploadedFile(
+            'big.jpg',
+            b'x' * (5 * 1024 * 1024 + 1),
+            content_type='image/jpeg',
+        )
+        r = self.client.post(
+            f'/api/v1/inventories/{inv_id}/spaces/{space_id}/photos/',
+            {'image': bad},
+            format='multipart',
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(r.json()['error']['code'], ('invalid_image', 'validation_error'))
 
     def test_bulk_spaces_step2(self):
         create_r = self._create_inventory()
@@ -183,7 +226,8 @@ class InventoryInitialAPITests(TestCase):
         self.assertEqual(r_mine.status_code, status.HTTP_200_OK)
         self.assertEqual(len(r_mine.data), 1)
 
-    def test_sign_inventory_rf11(self):
+    def test_cp_rf_11_tenant_signs_inventory_rf11(self):
+        """CP-RF-11: arrendatario firma inventario en PENDING_SIGNATURE."""
         create_r = self._create_inventory()
         inv_id = create_r.data['id']
         self.client.force_authenticate(user=self.admin)
@@ -199,7 +243,8 @@ class InventoryInitialAPITests(TestCase):
         self.assertEqual(r.data['status'], Inventory.Status.ACCEPTED)
         self.assertIsNotNone(r.data['signed_at'])
 
-    def test_tenant_observations_alternate_flow(self):
+    def test_cp_rf_11_tenant_observations_alternate_rf11(self):
+        """CP-RF-11 flujo alterno: arrendatario registra observaciones en lugar de firmar."""
         create_r = self._create_inventory()
         inv_id = create_r.data['id']
         self.client.force_authenticate(user=self.admin)
@@ -219,7 +264,8 @@ class InventoryInitialAPITests(TestCase):
         self.assertEqual(r.data['status'], Inventory.Status.OBSERVATIONS_PENDING)
         self.assertTrue(InventoryTenantObservation.objects.filter(inventory_id=inv_id).exists())
 
-    def test_pdf_generation_rf12(self):
+    def test_cp_rf_12_inventory_pdf_generation_rf12(self):
+        """CP-RF-12: generar PDF del inventario con espacios y registro en historial."""
         create_r = self._create_inventory()
         inv_id = create_r.data['id']
         self.client.force_authenticate(user=self.admin)
@@ -237,29 +283,6 @@ class InventoryInitialAPITests(TestCase):
                 details__document='inventory_pdf',
             ).exists()
         )
-
-    def test_invalid_image_rejected_rf10(self):
-        create_r = self._create_inventory()
-        inv_id = create_r.data['id']
-        self.client.force_authenticate(user=self.admin)
-        r_space = self.client.post(
-            f'/api/v1/inventories/{inv_id}/spaces/',
-            {'space_name': 'Sala', 'condition': 'GOOD'},
-            format='json',
-        )
-        space_id = r_space.data['created_space_id']
-        bad = SimpleUploadedFile(
-            'big.jpg',
-            b'x' * (5 * 1024 * 1024 + 1),
-            content_type='image/jpeg',
-        )
-        r = self.client.post(
-            f'/api/v1/inventories/{inv_id}/spaces/{space_id}/photos/',
-            {'image': bad},
-            format='multipart',
-        )
-        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn(r.json()['error']['code'], ('invalid_image', 'validation_error'))
 
     def test_tenant_cannot_create_inventory(self):
         self.client.force_authenticate(user=self.tenant)

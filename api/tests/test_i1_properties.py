@@ -1,3 +1,5 @@
+"""Pruebas i1 inmuebles — CP-RF-06 y CP-RF-07 (RF-06, RF-07)."""
+
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -32,7 +34,8 @@ class PropertyManagementAPITests(TestCase):
         r = self.client.get('/api/v1/properties/')
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_create_property_rf06(self):
+    def test_cp_rf_06_create_property_unique_code_rf06(self):
+        """CP-RF-06: crear inmueble con dirección única, código autogenerado y estado AVAILABLE."""
         self.client.force_authenticate(user=self.admin)
         r = self.client.post(
             '/api/v1/properties/',
@@ -59,7 +62,8 @@ class PropertyManagementAPITests(TestCase):
             ).exists()
         )
 
-    def test_duplicate_address_rejected_rf06(self):
+    def test_cp_rf_06_rejects_duplicate_address_rf06(self):
+        """CP-RF-06 flujo alterno: rechaza dirección duplicada."""
         Property.objects.create(
             code='PRO-00099',
             address='Av. Siempre Viva 742',
@@ -147,7 +151,8 @@ class PropertyManagementAPITests(TestCase):
         self.assertIn('by_status', r.data)
         self.assertIn('by_type', r.data)
 
-    def test_property_history_rf07(self):
+    def test_cp_rf_07_property_history_chronological_rf07(self):
+        """CP-RF-07: historial cronológico del inmueble (tickets, inventarios, arrendatarios)."""
         prop = Property.objects.create(
             code='PRO-00400',
             address='Historial 1',
