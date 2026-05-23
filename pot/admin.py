@@ -24,7 +24,22 @@ class CustomUserAdmin(BaseUserAdmin):
     search_fields = ('email', 'first_name', 'last_name')
     filter_horizontal = ()
     fieldsets = BaseUserAdmin.fieldsets + (
-        ('POT', {'fields': ('phone', 'role', 'password_changed', 'login_attempts', 'login_locked_until')}),
+        (
+            'POT',
+            {
+                'fields': (
+                    'phone',
+                    'public_code',
+                    'document_type',
+                    'document_number',
+                    'avatar',
+                    'role',
+                    'password_changed',
+                    'login_attempts',
+                    'login_locked_until',
+                ),
+            },
+        ),
     )
     add_fieldsets = (
         (None, {'classes': ('wide',), 'fields': ('email', 'password1', 'password2', 'role', 'phone')}),

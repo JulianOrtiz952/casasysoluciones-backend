@@ -43,3 +43,16 @@ def limpiar_intentos_fallidos(user):
     user.login_attempts = 0
     user.login_locked_until = None
     user.save(update_fields=['login_attempts', 'login_locked_until'])
+
+
+def buscar_usuario_por_credencial(identifier):
+    """Busca usuario por email (case-insensitive) o número de documento."""
+    from pot.models import CustomUser
+
+    value = (identifier or '').strip()
+    if not value:
+        return None
+    user = CustomUser.objects.filter(email__iexact=value).first()
+    if user:
+        return user
+    return CustomUser.objects.filter(document_number=value).first()

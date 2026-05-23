@@ -25,7 +25,7 @@ from api.views import CustomTokenObtainPairView
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('pot.urls')),
-    path('api/v1/', include('api.urls')),
+    path('api/v1/', include('api.v1.urls')),
     path('api/v1/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/v1/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 ]

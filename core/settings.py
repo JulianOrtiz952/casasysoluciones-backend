@@ -47,6 +47,7 @@ INSTALLED_APPS = [
     'storages',
     'pot',
     'api',
+    'rest_framework_simplejwt.token_blacklist',
 ]
 
 MIDDLEWARE = [
@@ -171,7 +172,10 @@ import os
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
+    ),
+    'DEFAULT_PAGINATION_CLASS': 'api.v1.pagination.StandardResultsSetPagination',
+    'PAGE_SIZE': 20,
+    'EXCEPTION_HANDLER': 'api.v1.exceptions.api_exception_handler',
 }
 
 SIMPLE_JWT = {

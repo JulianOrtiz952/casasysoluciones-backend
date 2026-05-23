@@ -38,9 +38,24 @@ class CustomUser(AbstractUser):
         ASSISTANT = 'ASSISTANT', 'Asistente Administrativo'
         TENANT = 'TENANT', 'Arrendatario'
 
+    class DocumentType(models.TextChoices):
+        CC = 'CC', 'Cédula de ciudadanía'
+        CE = 'CE', 'Cédula de extranjería'
+        PASSPORT = 'PASSPORT', 'Pasaporte'
+        NIT = 'NIT', 'NIT'
+
     username = models.CharField(max_length=150, unique=True, blank=True)
     email = models.EmailField(unique=True)
     phone = models.CharField(max_length=20, default='')
+    public_code = models.CharField(max_length=20, unique=True, blank=True, null=True)
+    document_type = models.CharField(
+        max_length=20,
+        choices=DocumentType.choices,
+        blank=True,
+        default='',
+    )
+    document_number = models.CharField(max_length=30, unique=True, blank=True, null=True)
+    avatar = models.ImageField(upload_to='avatars/%Y/%m/', blank=True, null=True, max_length=255)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.TENANT)
     password_changed = models.BooleanField(default=False)
     password_reset_token = models.CharField(max_length=255, null=True, blank=True)
@@ -62,6 +77,9 @@ class CustomUser(AbstractUser):
         if not self.username:
             self.username = self.email
         super().save(*args, **kwargs)
+        if not self.public_code:
+            self.public_code = f'USR-{self.pk:05d}'
+            super().save(update_fields=['public_code'])
 
     def __str__(self):
         return f'{self.email} ({self.get_role_display()})'
@@ -142,6 +160,10 @@ class Property(models.Model):
 
     code = models.CharField(max_length=20, unique=True)
     address = models.CharField(max_length=255, unique=True)
+    city = models.CharField(max_length=100, blank=True, default='')
+    building_name = models.CharField(max_length=150, blank=True, default='')
+    unit_label = models.CharField(max_length=50, blank=True, default='')
+    cover_image = models.ImageField(upload_to='properties/covers/%Y/%m/', blank=True, null=True, max_length=255)
     type = models.CharField(max_length=20, choices=Type.choices)
     owner_name = models.CharField(max_length=150)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.AVAILABLE)
