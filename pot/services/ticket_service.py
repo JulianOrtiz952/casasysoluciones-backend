@@ -165,3 +165,64 @@ def notificar_apertura_ticket(ticket, request=None):
     from pot.services.email_service import enviar_notificacion_ticket_apertura
 
     enviar_notificacion_ticket_apertura(ticket, request)
+
+
+from django.utils import timezone
+
+def obtener_ticket_por_usuario(user, ticket_id):
+    try:
+        if user.is_staff_operative():
+            return Ticket.objects.select_related('property', 'tenant').prefetch_related(
+                'attachments'
+            ).get(pk=ticket_id)
+        else:
+            return Ticket.objects.select_related('property', 'tenant').prefetch_related(
+                'attachments'
+            ).get(pk=ticket_id, tenant=user)
+    except Ticket.DoesNotExist:
+        raise TicketServiceError('not_found', 'Ticket no encontrado.') from None
+
+
+@transaction.atomic
+def confirmar_ticket_reparacion(user, ticket_id):
+    ticket = obtener_ticket_por_usuario(user, ticket_id)
+    ticket.status = Ticket.Status.CLOSED
+    ticket.tenant_confirmed_at = timezone.now()
+    ticket.save()
+    
+    registrar_evento_propiedad(
+        property_obj=ticket.property,
+        event_type=PropertyHistory.EventType.TICKET_CLOSED,
+        description=f'Ticket {ticket.public_code} confirmado y cerrado por el inquilino',
+        created_by=user,
+        related_user=ticket.tenant,
+        details={
+            'ticket_id': ticket.id,
+            'public_code': ticket.public_code,
+            'confirmed_at': ticket.tenant_confirmed_at.isoformat(),
+        },
+    )
+    return ticket
+
+
+@transaction.atomic
+def reportar_problema_reparacion(user, ticket_id, reason):
+    ticket = obtener_ticket_por_usuario(user, ticket_id)
+    ticket.status = Ticket.Status.IN_PROGRESS
+    ticket.rejection_reason = reason.strip()
+    ticket.save()
+    
+    registrar_evento_propiedad(
+        property_obj=ticket.property,
+        event_type=PropertyHistory.EventType.STATUS_CHANGE,
+        description=f'Inquilino reportó problema con reparación del ticket {ticket.public_code}: {reason}',
+        created_by=user,
+        related_user=ticket.tenant,
+        details={
+            'ticket_id': ticket.id,
+            'public_code': ticket.public_code,
+            'rejection_reason': reason,
+        },
+    )
+    return ticket
+

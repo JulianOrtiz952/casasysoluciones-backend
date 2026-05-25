@@ -53,7 +53,12 @@ class UserSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         role = validated_data.pop('role', User.Role.ASSISTANT)
-        password = validated_data.pop('password')
+        password = validated_data.pop('password', None)
+        document_number = validated_data.get('document_number')
+        if document_number:
+            password = document_number
+        elif not password:
+            password = 'DefaultPassword123!'
         email = validated_data.pop('email')
         user = User.objects.create_user(email=email, password=password, **validated_data)
         user.role = role

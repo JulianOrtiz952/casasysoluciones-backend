@@ -61,6 +61,7 @@ class UserManagementAPITests(TestCase):
             {
                 'email': 'nuevo@tenant.com',
                 'first_name': 'Nuevo',
+                'document_number': '1111111111',
                 'property_ids': [self.prop1.id],
             },
             format='json',
@@ -107,6 +108,7 @@ class UserManagementAPITests(TestCase):
             '/api/v1/users/',
             {
                 'email': 'otro@test.com',
+                'document_number': '2222222222',
                 'property_ids': [self.prop1.id],
             },
             format='json',

@@ -338,6 +338,7 @@ class Ticket(models.Model):
         STRUCTURE = 'STRUCTURE', 'Estructura'
         PAINTING = 'PAINTING', 'Pintura'
         CARPENTRY = 'CARPENTRY', 'Carpintería'
+        APPLIANCE = 'APPLIANCE', 'Electrodoméstico'
         OTHER = 'OTHER', 'Otro'
 
     class Priority(models.TextChoices):

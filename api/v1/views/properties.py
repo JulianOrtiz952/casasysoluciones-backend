@@ -1,11 +1,12 @@
 from django.db import models
 from rest_framework import status, viewsets
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from api.v1.exceptions import APIError
 from api.v1.pagination import StandardResultsSetPagination
-from api.v1.permissions import IsStaffOperative
+from api.v1.permissions import IsStaffOperative, IsStaffOperativeOrReadOnly
 from api.v1.serializers.properties import (
     PropertyCreateSerializer,
     PropertyDetailSerializer,
@@ -38,6 +39,7 @@ class PropertyViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = Property.objects.all().order_by('-created_at')
+            
         prop_status = self.request.query_params.get('status')
         if prop_status:
             qs = qs.filter(status=prop_status)
@@ -118,4 +120,18 @@ class PropertyViewSet(viewsets.ModelViewSet):
         serializer = PropertyHistorySerializer(page if page is not None else events, many=True)
         if page is not None:
             return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path='mine', permission_classes=[IsAuthenticated])
+    def mine(self, request):
+        user = request.user
+        if user.role == 'TENANT':
+            qs = Property.objects.filter(
+                tenant_associations__user=user,
+                tenant_associations__dissociated_at__isnull=True
+            ).distinct().order_by('-created_at')
+        else:
+            qs = Property.objects.all().order_by('-created_at')
+        
+        serializer = PropertyListSerializer(qs, many=True)
         return Response(serializer.data)

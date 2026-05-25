@@ -260,7 +260,7 @@ class UserCreateView(AdminRequiredMixin, View):
                 messages.error(request, f'Inmueble {p.code} ya tiene arrendatario activo.')
                 form.add_error('properties', 'Quita inmuebles ya asignados.')
                 return render(request, 'users/user_create.html', {'form': form})
-        temp = generar_password_temporal()
+        temp = data.get('document_number')
         with transaction.atomic():
             user = CustomUser.objects.create_user(
                 email=data['email'],
@@ -268,6 +268,8 @@ class UserCreateView(AdminRequiredMixin, View):
                 first_name=data.get('first_name') or '',
                 last_name=data.get('last_name') or '',
                 phone=data.get('phone') or '',
+                document_type=data.get('document_type') or '',
+                document_number=data.get('document_number') or None,
                 role=CustomUser.Role.TENANT,
                 password_changed=False,
             )

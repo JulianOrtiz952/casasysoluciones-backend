@@ -27,12 +27,14 @@ class UserTenantCreateForm(forms.ModelForm):
 
     class Meta:
         model = CustomUser
-        fields = ['first_name', 'last_name', 'email', 'phone', 'properties']
+        fields = ['first_name', 'last_name', 'email', 'phone', 'document_type', 'document_number', 'properties']
         widgets = {
             'first_name': forms.TextInput(attrs={'class': 'form-control'}),
             'last_name': forms.TextInput(attrs={'class': 'form-control'}),
             'email': forms.EmailInput(attrs={'class': 'form-control'}),
             'phone': forms.TextInput(attrs={'class': 'form-control'}),
+            'document_type': forms.Select(attrs={'class': 'form-control'}),
+            'document_number': forms.TextInput(attrs={'class': 'form-control'}),
         }
 
     def clean_email(self):
@@ -40,6 +42,14 @@ class UserTenantCreateForm(forms.ModelForm):
         if email and CustomUser.objects.filter(email__iexact=email).exists():
             raise ValidationError('Este email ya está registrado')
         return email
+
+    def clean_document_number(self):
+        dn = self.cleaned_data.get('document_number')
+        if not dn:
+            raise ValidationError('El número de documento es obligatorio.')
+        if CustomUser.objects.filter(document_number=dn).exists():
+            raise ValidationError('Este número de documento ya está registrado.')
+        return dn
 
 
 class PasswordResetRequestForm(forms.Form):

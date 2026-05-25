@@ -448,36 +448,60 @@ def _validar_editable(inventory):
         raise InventoryServiceError('not_editable', 'El inventario no está en edición.')
 
 
-def crear_inventario_inicial(created_by, *, property_id, tenant_id, delivery_date, observations=None):
+def crear_inventario_inicial(created_by, *, property_id, tenant_id, delivery_date, observations=None, inventory_type=Inventory.Type.INITIAL):
     prop = Property.objects.filter(pk=property_id).first()
     if not prop:
         raise InventoryServiceError('property_not_found', 'Inmueble no encontrado.')
     tenant = CustomUser.objects.filter(pk=tenant_id, role=CustomUser.Role.TENANT).first()
     if not tenant:
         raise InventoryServiceError('tenant_not_found', 'Arrendatario no encontrado.')
-    if Inventory.objects.filter(
-        property=prop,
-        inventory_type=Inventory.Type.INITIAL,
-        status=Inventory.Status.ACCEPTED,
-    ).exists():
-        raise InventoryServiceError(
-            'initial_already_accepted',
-            'Ya existe un inventario inicial aceptado para este inmueble.',
-        )
-    if not UserPropertyAssociation.objects.filter(
-        user=tenant,
-        property=prop,
-        dissociated_at__isnull=True,
-    ).exists():
-        raise InventoryServiceError(
-            'tenant_not_associated',
-            'El arrendatario no está asociado activamente a este inmueble.',
-        )
+
+    if inventory_type == Inventory.Type.INITIAL:
+        if Inventory.objects.filter(
+            property=prop,
+            inventory_type=Inventory.Type.INITIAL,
+            status=Inventory.Status.ACCEPTED,
+        ).exists():
+            raise InventoryServiceError(
+                'initial_already_accepted',
+                'Ya existe un inventario inicial aceptado para este inmueble.',
+            )
+        # Si es inicial, entonces debería asociar al inquilino que se seleccione
+        active_assoc = UserPropertyAssociation.objects.filter(
+            property=prop,
+            dissociated_at__isnull=True,
+        ).first()
+        if active_assoc:
+            if active_assoc.user != tenant:
+                # Desasociar el inquilino anterior
+                from django.utils import timezone
+                active_assoc.dissociated_at = timezone.now()
+                active_assoc.save(update_fields=['dissociated_at'])
+                registrar_evento_propiedad(
+                    prop,
+                    PropertyHistory.EventType.TENANT_DISSOCIATED,
+                    f'Desasociado {active_assoc.user.email} por nuevo inventario inicial',
+                    created_by=created_by,
+                    related_user=active_assoc.user,
+                )
+                # Asociar al nuevo inquilino
+                UserPropertyAssociation.objects.create(
+                    user=tenant,
+                    property=prop,
+                    created_by=created_by,
+                )
+        else:
+            UserPropertyAssociation.objects.create(
+                user=tenant,
+                property=prop,
+                created_by=created_by,
+            )
+
     try:
         inv = Inventory.objects.create(
             property=prop,
             tenant=tenant,
-            inventory_type=Inventory.Type.INITIAL,
+            inventory_type=inventory_type,
             status=Inventory.Status.IN_PROGRESS,
             delivery_date=delivery_date,
             observations=observations or '',
@@ -491,7 +515,7 @@ def crear_inventario_inicial(created_by, *, property_id, tenant_id, delivery_dat
     registrar_evento_propiedad(
         prop,
         PropertyHistory.EventType.INVENTORY_CREATED,
-        f'Inventario inicial #{inv.pk}',
+        f'Inventario {inv.get_inventory_type_display()} #{inv.pk}',
         created_by=created_by,
         related_user=tenant,
         details={'inventory_id': inv.pk},

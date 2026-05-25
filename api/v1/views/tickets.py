@@ -13,6 +13,7 @@ from api.v1.serializers.tickets import (
     TicketCreateSerializer,
     TicketDetailSerializer,
     TicketListSerializer,
+    TicketReportProblemSerializer,
 )
 from pot.models import Ticket
 from pot.services import ticket_service
@@ -46,13 +47,23 @@ class TenantTicketViewSet(
 ):
     """HU-05: creación de tickets por arrendatario (RF-13 a RF-17)."""
 
-    permission_classes = [IsAuthenticated, IsTenant]
+    permission_classes = [IsAuthenticated]
     pagination_class = StandardResultsSetPagination
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_queryset(self):
+        user = self.request.user
+        if not user or not user.is_authenticated:
+            return Ticket.objects.none()
+        if user.is_staff_operative():
+            return (
+                Ticket.objects.all()
+                .select_related('property')
+                .prefetch_related('attachments')
+                .order_by('-created_at')
+            )
         return (
-            Ticket.objects.filter(tenant=self.request.user)
+            Ticket.objects.filter(tenant=user)
             .select_related('property')
             .prefetch_related('attachments')
             .order_by('-created_at')
@@ -122,3 +133,26 @@ class TenantTicketViewSet(
             TicketAttachmentSerializer(attachment).data,
             status=status.HTTP_201_CREATED,
         )
+
+    @action(detail=True, methods=['post'], url_path='confirm')
+    def confirm(self, request, pk=None):
+        try:
+            ticket = ticket_service.confirmar_ticket_reparacion(request.user, pk)
+        except TicketServiceError as exc:
+            _handle_service_error(exc)
+        return Response(TicketDetailSerializer(ticket).data)
+
+    @action(detail=True, methods=['post'], url_path='report-problem')
+    def report_problem(self, request, pk=None):
+        serializer = TicketReportProblemSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            ticket = ticket_service.reportar_problema_reparacion(
+                request.user,
+                pk,
+                serializer.validated_data['reason'],
+            )
+        except TicketServiceError as exc:
+            _handle_service_error(exc)
+        return Response(TicketDetailSerializer(ticket).data)
+

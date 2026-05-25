@@ -71,3 +71,8 @@ class TicketDetailSerializer(TicketListSerializer):
 
 class TicketAttachmentUploadSerializer(serializers.Serializer):
     image = serializers.ImageField()
+
+
+class TicketReportProblemSerializer(serializers.Serializer):
+    reason = serializers.CharField(min_length=3, max_length=1000)
+

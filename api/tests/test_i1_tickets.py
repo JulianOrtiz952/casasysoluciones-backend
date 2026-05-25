@@ -217,3 +217,53 @@ class TicketCreationAPITests(TestCase):
         self.client.force_authenticate(user=self.admin)
         r = self.client.post('/api/v1/tickets/mine/', _ticket_payload(), format='json')
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_tenant_can_confirm_resolved_ticket(self):
+        # Create an in_progress ticket
+        ticket = Ticket.objects.create(
+            property=self.property1,
+            tenant=self.tenant,
+            title='Test Ticket',
+            status=Ticket.Status.IN_PROGRESS,
+        )
+        self.client.force_authenticate(user=self.tenant)
+        r = self.client.post(f'/api/v1/tickets/mine/{ticket.id}/confirm/')
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, Ticket.Status.CLOSED)
+        self.assertIsNotNone(ticket.tenant_confirmed_at)
+        
+        self.assertTrue(
+            PropertyHistory.objects.filter(
+                property=self.property1,
+                event_type=PropertyHistory.EventType.TICKET_CLOSED,
+            ).exists()
+        )
+
+    def test_tenant_can_report_problem_on_ticket(self):
+        # Create an in_progress ticket
+        ticket = Ticket.objects.create(
+            property=self.property1,
+            tenant=self.tenant,
+            title='Test Ticket',
+            status=Ticket.Status.IN_PROGRESS,
+        )
+        self.client.force_authenticate(user=self.tenant)
+        r = self.client.post(
+            f'/api/v1/tickets/mine/{ticket.id}/report-problem/',
+            {'reason': 'Sigue goteando un poco por la junta trasera.'},
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, Ticket.Status.IN_PROGRESS)
+        self.assertEqual(ticket.rejection_reason, 'Sigue goteando un poco por la junta trasera.')
+        
+        self.assertTrue(
+            PropertyHistory.objects.filter(
+                property=self.property1,
+                event_type=PropertyHistory.EventType.STATUS_CHANGE,
+            ).exists()
+        )

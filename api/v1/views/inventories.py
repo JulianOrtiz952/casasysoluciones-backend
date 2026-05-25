@@ -147,12 +147,6 @@ class InventoryViewSet(
         serializer = InventoryCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        if data.get('inventory_type') != Inventory.Type.INITIAL:
-            raise APIError(
-                'invalid_inventory_type',
-                'Solo se permite crear inventario inicial en esta iteración.',
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
         try:
             inv = inventory_service.crear_inventario_inicial(
                 request.user,
@@ -160,6 +154,7 @@ class InventoryViewSet(
                 tenant_id=data['tenant_id'],
                 delivery_date=data['delivery_date'],
                 observations=data.get('observations'),
+                inventory_type=data.get('inventory_type', Inventory.Type.INITIAL),
             )
         except InventoryServiceError as exc:
             _handle_service_error(exc)

@@ -77,11 +77,13 @@ def crear_arrendatario(created_by, *, email, property_ids, request=None, send_cr
         raise UserServiceError('email_exists', 'Este correo ya está registrado.')
 
     document_number = profile_fields.get('document_number')
-    if document_number and CustomUser.objects.filter(document_number=document_number).exists():
+    if not document_number:
+        raise UserServiceError('document_number_required', 'El número de documento (cédula) es obligatorio.')
+    if CustomUser.objects.filter(document_number=document_number).exists():
         raise UserServiceError('document_exists', 'Este número de documento ya está registrado.')
 
     _validar_inmuebles_disponibles(properties)
-    temp_password = generar_password_temporal()
+    temp_password = document_number
 
     with transaction.atomic():
         user = CustomUser.objects.create_user(

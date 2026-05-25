@@ -99,7 +99,7 @@ class InventoryInitialAPITests(TestCase):
             ).exists()
         )
 
-    def test_create_rejects_unassociated_tenant(self):
+    def test_create_associates_unassociated_tenant(self):
         other_tenant = CustomUser.objects.create_user(
             email='other-tenant@test.com',
             password='TenantPass123!',
@@ -116,8 +116,14 @@ class InventoryInitialAPITests(TestCase):
             },
             format='json',
         )
-        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(r.json()['error']['code'], 'tenant_not_associated')
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(
+            UserPropertyAssociation.objects.filter(
+                user=other_tenant,
+                property=self.property,
+                dissociated_at__isnull=True,
+            ).exists()
+        )
 
     def test_cp_rf_09_space_templates_and_dynamic_spaces_rf09(self):
         """CP-RF-09: plantillas por tipo de inmueble y espacios dinámicos (crear/eliminar)."""
