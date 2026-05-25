@@ -1,6 +1,10 @@
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
 from django.utils import timezone
+import re
+import html as html_lib
+import urllib.request
+import urllib.parse
 
 
 class CustomUserManager(BaseUserManager):
@@ -167,6 +171,21 @@ class Property(models.Model):
     type = models.CharField(max_length=20, choices=Type.choices)
     owner_name = models.CharField(max_length=150)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.AVAILABLE)
+    
+    # New fields migrated from Inmueble
+    price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    rooms = models.IntegerField(null=True, blank=True)
+    bathrooms = models.IntegerField(null=True, blank=True)
+    living_rooms = models.IntegerField(null=True, blank=True)
+    kitchens = models.IntegerField(null=True, blank=True)
+    garages = models.IntegerField(null=True, blank=True)
+    is_commercial = models.BooleanField(default=False)
+    in_complex = models.BooleanField(default=False)
+    admin_included = models.BooleanField(default=False)
+    admin_value = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    google_maps_link = models.CharField(max_length=1000, null=True, blank=True)
+    description = models.TextField(blank=True, null=True)
+
     observations = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -185,6 +204,57 @@ class Property(models.Model):
     def __str__(self):
         return f'{self.code} - {self.address}'
 
+    def save(self, *args, **kwargs):
+        if self.google_maps_link and (not self.address or self.address == 'Ver enlace de Google Maps adjunto'):
+            try:
+                req = urllib.request.Request(self.google_maps_link, headers={'User-Agent': 'Mozilla/5.0'})
+                res = urllib.request.urlopen(req, timeout=10)
+                html_content = res.read().decode('utf-8', errors='ignore')
+
+                titulo_maps = ''
+                subtitulo_maps = ''
+
+                for meta_match in re.finditer(r'<meta\s+([^>]+)>', html_content):
+                    attrs = meta_match.group(1)
+                    if 'property="og:title"' in attrs:
+                        c_match = re.search(r'content="([^"]+)"', attrs)
+                        if c_match:
+                            titulo_maps = c_match.group(1)
+                    elif 'property="og:description"' in attrs:
+                        c_match = re.search(r'content="([^"]+)"', attrs)
+                        if c_match:
+                            subtitulo_maps = c_match.group(1)
+
+                titulo_maps = html_lib.unescape(titulo_maps).strip()
+                subtitulo_maps = html_lib.unescape(subtitulo_maps).strip()
+
+                if titulo_maps:
+                    def starts_with_num(s):
+                        return (s[0].isdigit() or s[0] in ['-', '+']) if s else False
+
+                    if ' · Google Maps' in subtitulo_maps:
+                        subtitulo_maps = subtitulo_maps.replace(' · Google Maps', '')
+
+                    if starts_with_num(titulo_maps):
+                        if starts_with_num(subtitulo_maps):
+                            self.address = titulo_maps
+                        else:
+                            self.address = subtitulo_maps if subtitulo_maps else titulo_maps
+                    else:
+                        self.address = titulo_maps
+                else:
+                    final_url = res.geturl()
+                    if '/search/' in final_url:
+                        query = final_url.split('/search/')[1].split('?')[0].split('/')[0]
+                        self.address = urllib.parse.unquote_plus(query)
+                    elif '/place/' in final_url:
+                        query = final_url.split('/place/')[1].split('/')[0]
+                        self.address = urllib.parse.unquote_plus(query)
+            except Exception as e:
+                print(f'Error resolving maps link in Property: {e}')
+
+        super().save(*args, **kwargs)
+
     def get_active_tenant(self):
         assoc = (
             self.tenant_associations.filter(dissociated_at__isnull=True)
@@ -192,6 +262,24 @@ class Property(models.Model):
             .first()
         )
         return assoc.user if assoc else None
+
+
+class PropertyImage(models.Model):
+    property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='images')
+    image = models.ImageField(upload_to='properties/gallery/%Y/%m/', max_length=255)
+    is_cover = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-is_cover', 'created_at']
+
+    def __str__(self):
+        return f'Imagen de {self.property.code} - {"Portada" if self.is_cover else "Galería"}'
+
+    def save(self, *args, **kwargs):
+        if self.is_cover:
+            PropertyImage.objects.filter(property=self.property, is_cover=True).update(is_cover=False)
+        super().save(*args, **kwargs)
 
 
 class PropertyHistory(models.Model):

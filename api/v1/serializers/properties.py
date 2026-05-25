@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from pot.models import CustomUser, Property, PropertyHistory
+from pot.models import CustomUser, Property, PropertyHistory, PropertyImage
 
 
 class ActiveTenantBriefSerializer(serializers.ModelSerializer):
@@ -8,6 +8,11 @@ class ActiveTenantBriefSerializer(serializers.ModelSerializer):
         model = CustomUser
         fields = ['id', 'public_code', 'email', 'first_name', 'last_name', 'document_number']
 
+
+class PropertyImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PropertyImage
+        fields = ['id', 'image', 'is_cover']
 
 class PropertyListSerializer(serializers.ModelSerializer):
     type_display = serializers.CharField(source='get_type_display', read_only=True)
@@ -28,6 +33,17 @@ class PropertyListSerializer(serializers.ModelSerializer):
             'status',
             'status_display',
             'owner_name',
+            'price',
+            'rooms',
+            'bathrooms',
+            'living_rooms',
+            'kitchens',
+            'garages',
+            'is_commercial',
+            'in_complex',
+            'admin_included',
+            'admin_value',
+            'google_maps_link',
             'active_tenant',
             'created_at',
             'updated_at',
@@ -42,6 +58,7 @@ class PropertyListSerializer(serializers.ModelSerializer):
 
 class PropertyDetailSerializer(PropertyListSerializer):
     cover_image = serializers.ImageField(read_only=True)
+    images = PropertyImageSerializer(many=True, read_only=True)
     created_by_email = serializers.EmailField(
         source='created_by.email',
         read_only=True,
@@ -52,18 +69,34 @@ class PropertyDetailSerializer(PropertyListSerializer):
     class Meta(PropertyListSerializer.Meta):
         fields = PropertyListSerializer.Meta.fields + [
             'cover_image',
+            'images',
             'observations',
+            'description',
             'created_by_email',
         ]
 
 
 class PropertyCreateSerializer(serializers.Serializer):
-    address = serializers.CharField(max_length=255)
+    address = serializers.CharField(max_length=255, required=False, allow_blank=True)
     type = serializers.ChoiceField(choices=Property.Type.choices)
     owner_name = serializers.CharField(max_length=150)
     city = serializers.CharField(max_length=100, required=False, allow_blank=True, default='')
     building_name = serializers.CharField(max_length=150, required=False, allow_blank=True, default='')
     unit_label = serializers.CharField(max_length=50, required=False, allow_blank=True, default='')
+    
+    price = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, default=0)
+    rooms = serializers.IntegerField(required=False, allow_null=True)
+    bathrooms = serializers.IntegerField(required=False, allow_null=True)
+    living_rooms = serializers.IntegerField(required=False, allow_null=True)
+    kitchens = serializers.IntegerField(required=False, allow_null=True)
+    garages = serializers.IntegerField(required=False, allow_null=True)
+    is_commercial = serializers.BooleanField(required=False, default=False)
+    in_complex = serializers.BooleanField(required=False, default=False)
+    admin_included = serializers.BooleanField(required=False, default=False)
+    admin_value = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    google_maps_link = serializers.CharField(max_length=1000, required=False, allow_blank=True, allow_null=True)
+    description = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    
     observations = serializers.CharField(required=False, allow_blank=True, allow_null=True, default=None)
     cover_image = serializers.ImageField(required=False, allow_null=True)
 
@@ -76,6 +109,20 @@ class PropertyUpdateSerializer(serializers.Serializer):
     city = serializers.CharField(max_length=100, required=False, allow_blank=True)
     building_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
     unit_label = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    
+    price = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
+    rooms = serializers.IntegerField(required=False, allow_null=True)
+    bathrooms = serializers.IntegerField(required=False, allow_null=True)
+    living_rooms = serializers.IntegerField(required=False, allow_null=True)
+    kitchens = serializers.IntegerField(required=False, allow_null=True)
+    garages = serializers.IntegerField(required=False, allow_null=True)
+    is_commercial = serializers.BooleanField(required=False)
+    in_complex = serializers.BooleanField(required=False)
+    admin_included = serializers.BooleanField(required=False)
+    admin_value = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
+    google_maps_link = serializers.CharField(max_length=1000, required=False, allow_blank=True, allow_null=True)
+    description = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
     observations = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     cover_image = serializers.ImageField(required=False, allow_null=True)
 

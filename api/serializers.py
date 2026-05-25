@@ -43,12 +43,12 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
-    role = serializers.ChoiceField(choices=User.Role.choices, write_only=True, required=False)
+    role = serializers.ChoiceField(choices=User.Role.choices, required=False)
     role_display = serializers.CharField(source='get_role_display', read_only=True)
 
     class Meta:
         model = User
-        fields = ['id', 'email', 'first_name', 'last_name', 'password', 'role', 'role_display', 'is_active']
+        fields = ['id', 'email', 'first_name', 'last_name', 'password', 'role', 'role_display', 'is_active', 'document_type', 'document_number', 'phone', 'public_code']
         extra_kwargs = {'password': {'write_only': True}}
 
     def create(self, validated_data):

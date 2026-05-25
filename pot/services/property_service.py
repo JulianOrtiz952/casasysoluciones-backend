@@ -65,7 +65,11 @@ def validar_direccion_unica(address, *, exclude_pk=None):
 
 
 def crear_propiedad(created_by, **data):
-    address = data.pop('address')
+    address = data.pop('address', '')
+    if not address and not data.get('google_maps_link'):
+        raise PropertyServiceError('address_required', 'La dirección o el enlace de Google Maps es obligatorio.')
+    if not address:
+        address = 'Ver enlace de Google Maps adjunto'
     validar_direccion_unica(address)
     cover_image = data.pop('cover_image', None)
     prop = Property(
