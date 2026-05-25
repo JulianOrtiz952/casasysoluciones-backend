@@ -23,10 +23,12 @@ from pot.models import (
     InventorySpace,
     InventorySpacePhoto,
     InventoryTenantObservation,
+    LeaseContract,
     Property,
     PropertyHistory,
     UserPropertyAssociation,
 )
+from pot.services.contract_service import obtener_o_crear_contrato_activo, tickets_del_contrato
 from pot.services.property_service import registrar_evento_propiedad
 
 
@@ -664,5 +666,459 @@ def registrar_log_generacion_pdf(inventory, user):
             'inventory_id': inventory.pk,
             'document': 'inventory_pdf',
             'inventory_type': inventory.inventory_type,
+        },
+    )
+
+
+CONDITION_RANK = {
+    InventorySpace.Condition.GOOD: 0,
+    InventorySpace.Condition.REGULAR: 1,
+    InventorySpace.Condition.BAD: 2,
+}
+
+CONDITION_LABELS = dict(InventorySpace.Condition.choices)
+
+
+def _normalize_space_name(name):
+    return (name or '').strip().lower()
+
+
+def obtener_inventario_inicial_aceptado(property_obj, tenant):
+    return (
+        Inventory.objects.filter(
+            property=property_obj,
+            tenant=tenant,
+            inventory_type=Inventory.Type.INITIAL,
+            status=Inventory.Status.ACCEPTED,
+        )
+        .order_by('-signed_at', '-created_at')
+        .first()
+    )
+
+
+@transaction.atomic
+def crear_inventario_final(created_by, *, property_id, tenant_id, delivery_date, observations=None):
+    prop = Property.objects.filter(pk=property_id).first()
+    if not prop:
+        raise InventoryServiceError('property_not_found', 'Inmueble no encontrado.')
+    tenant = CustomUser.objects.filter(pk=tenant_id, role=CustomUser.Role.TENANT).first()
+    if not tenant:
+        raise InventoryServiceError('tenant_not_found', 'Arrendatario no encontrado.')
+    if not UserPropertyAssociation.objects.filter(
+        user=tenant,
+        property=prop,
+        dissociated_at__isnull=True,
+    ).exists():
+        raise InventoryServiceError(
+            'tenant_not_associated',
+            'El arrendatario no está asociado activamente a este inmueble.',
+        )
+
+    initial = obtener_inventario_inicial_aceptado(prop, tenant)
+    if not initial:
+        raise InventoryServiceError(
+            'initial_not_accepted',
+            'Se requiere un inventario inicial aceptado para este inmueble y arrendatario.',
+        )
+
+    if Inventory.objects.filter(
+        property=prop,
+        tenant=tenant,
+        inventory_type=Inventory.Type.FINAL,
+    ).exists():
+        raise InventoryServiceError(
+            'final_already_exists',
+            'Ya existe un inventario final para este inmueble y arrendatario.',
+        )
+
+    try:
+        inv = Inventory.objects.create(
+            property=prop,
+            tenant=tenant,
+            inventory_type=Inventory.Type.FINAL,
+            status=Inventory.Status.IN_PROGRESS,
+            delivery_date=delivery_date,
+            observations=observations or '',
+            created_by=created_by,
+        )
+    except Exception as exc:
+        raise InventoryServiceError(
+            'duplicate_inventory',
+            'Ya existe un inventario para esta combinación inmueble/arrendatario/tipo.',
+        ) from exc
+
+    initial_spaces = list(initial.spaces.order_by('order', 'space_name'))
+    for space in initial_spaces:
+        InventorySpace.objects.create(
+            inventory=inv,
+            space_name=space.space_name,
+            condition=space.condition,
+            observations=space.observations or '',
+            order=space.order,
+        )
+
+    obtener_o_crear_contrato_activo(prop, tenant, final_inventory=inv)
+
+    registrar_evento_propiedad(
+        prop,
+        PropertyHistory.EventType.INVENTORY_CREATED,
+        f'Inventario final #{inv.pk} (precargado desde inicial #{initial.pk})',
+        created_by=created_by,
+        related_user=tenant,
+        details={
+            'inventory_id': inv.pk,
+            'inventory_type': inv.inventory_type,
+            'initial_inventory_id': initial.pk,
+            'spaces_preloaded': len(initial_spaces),
+        },
+    )
+    return inv
+
+
+def _clasificar_cambio_condicion(initial_condition, final_condition):
+    if not initial_condition:
+        return 'ONLY_FINAL', False
+    if not final_condition:
+        return 'ONLY_INITIAL', False
+    initial_rank = CONDITION_RANK.get(initial_condition, 0)
+    final_rank = CONDITION_RANK.get(final_condition, 0)
+    if final_rank > initial_rank:
+        return 'DETERIORATED', True
+    if final_rank < initial_rank:
+        return 'IMPROVED', False
+    return 'UNCHANGED', False
+
+
+def comparar_inventario_final(final_inventory):
+    if final_inventory.inventory_type != Inventory.Type.FINAL:
+        raise InventoryServiceError(
+            'not_final_inventory',
+            'La comparación solo aplica a inventarios finales.',
+        )
+
+    initial = obtener_inventario_inicial_aceptado(final_inventory.property, final_inventory.tenant)
+    if not initial:
+        raise InventoryServiceError(
+            'initial_not_accepted',
+            'No hay inventario inicial aceptado para comparar.',
+        )
+
+    initial_by_name = {
+        _normalize_space_name(s.space_name): s
+        for s in initial.spaces.order_by('order', 'space_name')
+    }
+    final_by_name = {
+        _normalize_space_name(s.space_name): s
+        for s in final_inventory.spaces.order_by('order', 'space_name')
+    }
+
+    all_names = sorted(set(initial_by_name) | set(final_by_name))
+    rows = []
+    summary = {
+        'total_spaces_compared': 0,
+        'deteriorated_count': 0,
+        'unchanged_count': 0,
+        'improved_count': 0,
+        'only_in_initial_count': 0,
+        'only_in_final_count': 0,
+    }
+
+    for key in all_names:
+        initial_space = initial_by_name.get(key)
+        final_space = final_by_name.get(key)
+        initial_condition = initial_space.condition if initial_space else None
+        final_condition = final_space.condition if final_space else None
+        change_type, highlight = _clasificar_cambio_condicion(initial_condition, final_condition)
+
+        if change_type == 'ONLY_INITIAL':
+            summary['only_in_initial_count'] += 1
+        elif change_type == 'ONLY_FINAL':
+            summary['only_in_final_count'] += 1
+        else:
+            summary['total_spaces_compared'] += 1
+            if change_type == 'DETERIORATED':
+                summary['deteriorated_count'] += 1
+            elif change_type == 'IMPROVED':
+                summary['improved_count'] += 1
+            else:
+                summary['unchanged_count'] += 1
+
+        display_name = (
+            (final_space.space_name if final_space else None)
+            or (initial_space.space_name if initial_space else key)
+        )
+        rows.append(
+            {
+                'space_name': display_name,
+                'initial_condition': initial_condition,
+                'final_condition': final_condition,
+                'initial_condition_display': CONDITION_LABELS.get(initial_condition) if initial_condition else None,
+                'final_condition_display': CONDITION_LABELS.get(final_condition) if final_condition else None,
+                'change_type': change_type,
+                'highlight': highlight,
+                'initial_observations': (initial_space.observations or '') if initial_space else '',
+                'final_observations': (final_space.observations or '') if final_space else '',
+            }
+        )
+
+    contract = LeaseContract.objects.filter(final_inventory=final_inventory).first()
+    if not contract:
+        contract = LeaseContract.objects.filter(
+            property=final_inventory.property,
+            tenant=final_inventory.tenant,
+            status=LeaseContract.Status.ACTIVE,
+        ).first()
+    if not contract:
+        contract = obtener_o_crear_contrato_activo(
+            final_inventory.property,
+            final_inventory.tenant,
+            final_inventory=final_inventory,
+        )
+
+    return {
+        'final_inventory_id': final_inventory.pk,
+        'initial_inventory_id': initial.pk,
+        'contract_id': contract.pk,
+        'property': {
+            'id': final_inventory.property_id,
+            'code': final_inventory.property.code,
+            'address': final_inventory.property.address,
+        },
+        'tenant': {
+            'id': final_inventory.tenant_id,
+            'email': final_inventory.tenant.email,
+            'full_name': final_inventory.tenant.get_full_name(),
+        },
+        'summary': summary,
+        'rows': rows,
+    }
+
+
+def generar_pdf_paz_y_salvo(final_inventory, user):
+    if final_inventory.inventory_type != Inventory.Type.FINAL:
+        raise InventoryServiceError(
+            'not_final_inventory',
+            'El documento de paz y salvo solo aplica a inventarios finales.',
+        )
+    comparison = comparar_inventario_final(final_inventory)
+    contract = LeaseContract.objects.filter(
+        property=final_inventory.property,
+        tenant=final_inventory.tenant,
+        status=LeaseContract.Status.ACTIVE,
+    ).first()
+    if not contract:
+        contract = obtener_o_crear_contrato_activo(
+            final_inventory.property,
+            final_inventory.tenant,
+            final_inventory=final_inventory,
+        )
+    tickets = list(tickets_del_contrato(contract))
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=0.65 * inch,
+        leftMargin=0.65 * inch,
+        topMargin=0.65 * inch,
+        bottomMargin=0.65 * inch,
+    )
+    elements = []
+    styles = getSampleStyleSheet()
+
+    title = ParagraphStyle(
+        name='ClosureTitle',
+        parent=styles['Heading1'],
+        fontSize=15,
+        leading=18,
+        alignment=TA_CENTER,
+        spaceAfter=6,
+        textColor=colors.HexColor('#1a1a2e'),
+    )
+    subtitle = ParagraphStyle(
+        name='ClosureSub',
+        parent=styles['Normal'],
+        fontSize=10,
+        alignment=TA_CENTER,
+        textColor=colors.HexColor('#444444'),
+        spaceAfter=14,
+    )
+    h2 = ParagraphStyle(
+        name='ClosureH2',
+        parent=styles['Heading2'],
+        fontSize=12,
+        leading=15,
+        spaceBefore=10,
+        spaceAfter=8,
+        textColor=colors.HexColor('#16213e'),
+    )
+    body = ParagraphStyle(
+        name='ClosureBody',
+        parent=styles['Normal'],
+        fontSize=10,
+        leading=14,
+        alignment=TA_JUSTIFY,
+    )
+    small = ParagraphStyle(
+        name='ClosureSmall',
+        parent=styles['Normal'],
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor('#555555'),
+        alignment=TA_CENTER,
+    )
+
+    doc_id = f'PYS-{final_inventory.property.code}-{final_inventory.pk}'
+    elements.append(Paragraph('PAZ Y SALVO — ACTA DE ENTREGA FINAL', title))
+    elements.append(Paragraph(f'{doc_id} &nbsp;·&nbsp; Contrato #{contract.pk}', subtitle))
+    elements.append(HRFlowable(width='100%', thickness=1, color=colors.HexColor('#1a1a2e')))
+    elements.append(Spacer(1, 0.15 * inch))
+
+    prop = final_inventory.property
+    tenant = final_inventory.tenant
+    elements.append(Paragraph('<b>I. Datos del arriendo</b>', h2))
+    bloque = f"""
+    <b>Inmueble:</b> {escape(prop.address)} (código {escape(prop.code)})<br/>
+    <b>Arrendatario:</b> {escape(tenant.get_full_name() or tenant.email)}<br/>
+    <b>Email:</b> {escape(tenant.email)}<br/>
+    <b>Periodo contrato:</b> {contract.start_date.strftime('%d/%m/%Y')}
+    — {contract.end_date.strftime('%d/%m/%Y') if contract.end_date else 'vigente'}<br/>
+    <b>Fecha entrega final:</b> {final_inventory.delivery_date.strftime('%d/%m/%Y')}<br/>
+    <b>Inventario inicial ID:</b> {comparison['initial_inventory_id']} &nbsp;|&nbsp;
+    <b>Inventario final ID:</b> {comparison['final_inventory_id']}
+    """
+    if final_inventory.observations:
+        bloque += f'<br/><b>Observaciones:</b> {escape(final_inventory.observations)}'
+    elements.append(Paragraph(bloque, body))
+    elements.append(Spacer(1, 0.2 * inch))
+
+    elements.append(Paragraph('<b>II. Comparativo inicial vs final</b>', h2))
+    sum_txt = (
+        f"Espacios comparados: {comparison['summary']['total_spaces_compared']} &nbsp;|&nbsp; "
+        f"Deterioro: {comparison['summary']['deteriorated_count']} &nbsp;|&nbsp; "
+        f"Sin cambio: {comparison['summary']['unchanged_count']} &nbsp;|&nbsp; "
+        f"Mejora: {comparison['summary']['improved_count']}"
+    )
+    elements.append(Paragraph(sum_txt, body))
+    elements.append(Spacer(1, 0.1 * inch))
+
+    data_tabla = [['Espacio', 'Inicial', 'Final', 'Cambio']]
+    for row in comparison['rows']:
+        change_label = {
+            'DETERIORATED': 'Deterioro',
+            'UNCHANGED': 'Sin cambio',
+            'IMPROVED': 'Mejora',
+            'ONLY_INITIAL': 'Solo en inicial',
+            'ONLY_FINAL': 'Solo en final',
+        }.get(row['change_type'], row['change_type'])
+        data_tabla.append(
+            [
+                escape(row['space_name']),
+                row['initial_condition_display'] or '—',
+                row['final_condition_display'] or '—',
+                change_label,
+            ]
+        )
+    tabla = Table(data_tabla, repeatRows=1, colWidths=[1.8 * inch, 1.2 * inch, 1.2 * inch, 1.8 * inch])
+    style_commands = [
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a1a2e')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#cccccc')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+    ]
+    for i, row in enumerate(comparison['rows'], start=1):
+        if row['highlight']:
+            style_commands.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#fde8e8')))
+    tabla.setStyle(TableStyle(style_commands))
+    elements.append(tabla)
+    elements.append(Spacer(1, 0.2 * inch))
+
+    elements.append(Paragraph('<b>III. Resumen de tickets del contrato</b>', h2))
+    if tickets:
+        ticket_data = [['Radicado', 'Tipo', 'Prioridad', 'Estado', 'Fecha']]
+        for t in tickets:
+            ticket_data.append(
+                [
+                    escape(t.public_code or str(t.pk)),
+                    t.get_damage_type_display(),
+                    t.get_priority_display(),
+                    t.get_status_display(),
+                    t.created_at.strftime('%d/%m/%Y'),
+                ]
+            )
+        ttabla = Table(ticket_data, repeatRows=1, colWidths=[1.1 * inch, 1.5 * inch, 1.0 * inch, 1.2 * inch, 0.9 * inch])
+        ttabla.setStyle(
+            TableStyle(
+                [
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#16213e')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, -1), 8),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                ]
+            )
+        )
+        elements.append(ttabla)
+    else:
+        elements.append(Paragraph('<i>No se registraron tickets durante el periodo del contrato.</i>', body))
+
+    elements.append(Spacer(1, 0.25 * inch))
+    elements.append(Paragraph('<b>IV. Declaración</b>', h2))
+    elements.append(
+        Paragraph(
+            'Con la firma de las partes, se deja constancia del estado del inmueble al momento de la entrega final, '
+            'del comparativo frente al inventario inicial y del resumen de solicitudes de mantenimiento atendidas '
+            'durante la vigencia del contrato, en los términos del reglamento de arrendamiento de Casas y Soluciones.',
+            body,
+        )
+    )
+    elements.append(Spacer(1, 0.4 * inch))
+    firma_tabla = Table(
+        [
+            ['_________________________', '_________________________'],
+            ['Representante inmobiliaria', 'Arrendatario'],
+            ['', escape(tenant.get_full_name() or tenant.email)],
+        ],
+        colWidths=[2.6 * inch, 2.6 * inch],
+    )
+    firma_tabla.setStyle(
+        TableStyle(
+            [
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('TOPPADDING', (0, 2), (-1, 2), 12),
+            ]
+        )
+    )
+    elements.append(firma_tabla)
+    elements.append(Spacer(1, 0.3 * inch))
+    elements.append(
+        Paragraph(
+            f'<b>Documento:</b> {doc_id} &nbsp;|&nbsp; <b>Generado:</b> '
+            f'{timezone.now().strftime("%d/%m/%Y %H:%M")} &nbsp;|&nbsp; <b>Por:</b> {escape(user.email)}',
+            small,
+        )
+    )
+
+    doc.build(elements)
+    buffer.seek(0)
+    return buffer
+
+
+def registrar_log_paz_y_salvo(final_inventory, user):
+    registrar_evento_propiedad(
+        final_inventory.property,
+        PropertyHistory.EventType.INVENTORY_CREATED,
+        f'Paz y salvo (inventario final #{final_inventory.pk}) generado',
+        created_by=user,
+        related_user=final_inventory.tenant,
+        details={
+            'inventory_id': final_inventory.pk,
+            'document': 'closure_clearance_pdf',
+            'inventory_type': final_inventory.inventory_type,
         },
     )

@@ -8,6 +8,8 @@ I1_PATH_PREFIXES = (
     '/api/v1/properties/',
     '/api/v1/inventories/',
     '/api/v1/tickets/mine/',
+    '/api/v1/tickets/',
+    '/api/v1/notifications/',
     '/api/v1/admin/',
     '/api/v1/legacy/',
 )

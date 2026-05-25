@@ -8,6 +8,7 @@ from pot.models import (
     InventorySpace,
     InventorySpacePhoto,
     InventoryTenantObservation,
+    LeaseContract,
     Property,
     PropertyHistory,
     Ticket,
@@ -58,3 +59,4 @@ admin.site.register(InventorySpace)
 admin.site.register(InventorySpacePhoto)
 admin.site.register(InventorySignature)
 admin.site.register(InventoryTenantObservation)
+admin.site.register(LeaseContract)

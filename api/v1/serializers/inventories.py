@@ -110,7 +110,7 @@ class InventoryCreateSerializer(serializers.Serializer):
     delivery_date = serializers.DateField()
     observations = serializers.CharField(required=False, allow_blank=True, default='')
     inventory_type = serializers.ChoiceField(
-        choices=[Inventory.Type.INITIAL],
+        choices=Inventory.Type.choices,
         default=Inventory.Type.INITIAL,
     )
 

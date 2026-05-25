@@ -1,0 +1,7 @@
+<!DOCTYPE html><html><body>
+<p>Su solicitud de reparación fue rechazada.</p>
+<p><strong>Radicado:</strong> {{ public_code }}</p>
+<p><strong>Inmueble:</strong> {{ property_code }} — {{ property_address }}</p>
+<p><strong>Motivo:</strong> {{ rejection_reason }}</p>
+{% if panel_url %}<p><a href="{{ panel_url }}">Ver detalle en el panel</a></p>{% endif %}
+</body></html>

@@ -40,6 +40,9 @@ def _handle_service_error(exc):
         'incomplete_review': status.HTTP_400_BAD_REQUEST,
         'invalid_property_type': status.HTTP_400_BAD_REQUEST,
         'invalid_image': status.HTTP_400_BAD_REQUEST,
+        'initial_not_accepted': status.HTTP_400_BAD_REQUEST,
+        'final_already_exists': status.HTTP_409_CONFLICT,
+        'not_final_inventory': status.HTTP_400_BAD_REQUEST,
     }
     raise APIError(
         exc.code,
@@ -104,7 +107,9 @@ class InventoryViewSet(
             return [IsAuthenticated(), IsStaffOperative()]
         if self.action == 'space_templates':
             return [IsAuthenticated()]
-        if self.action in ('pdf',):
+        if self.action in ('comparison', 'closure_document'):
+            return [IsAuthenticated(), IsStaffOperative()]
+        if self.action == 'pdf':
             return [IsAuthenticated(), CanAccessInventory()]
         if self.action == 'list':
             return [IsAuthenticated(), IsStaffOperative()]
@@ -147,23 +152,55 @@ class InventoryViewSet(
         serializer = InventoryCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        if data.get('inventory_type') != Inventory.Type.INITIAL:
-            raise APIError(
-                'invalid_inventory_type',
-                'Solo se permite crear inventario inicial en esta iteración.',
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
+        inv_type = data.get('inventory_type', Inventory.Type.INITIAL)
         try:
-            inv = inventory_service.crear_inventario_inicial(
-                request.user,
-                property_id=data['property_id'],
-                tenant_id=data['tenant_id'],
-                delivery_date=data['delivery_date'],
-                observations=data.get('observations'),
-            )
+            if inv_type == Inventory.Type.FINAL:
+                inv = inventory_service.crear_inventario_final(
+                    request.user,
+                    property_id=data['property_id'],
+                    tenant_id=data['tenant_id'],
+                    delivery_date=data['delivery_date'],
+                    observations=data.get('observations'),
+                )
+            else:
+                inv = inventory_service.crear_inventario_inicial(
+                    request.user,
+                    property_id=data['property_id'],
+                    tenant_id=data['tenant_id'],
+                    delivery_date=data['delivery_date'],
+                    observations=data.get('observations'),
+                )
         except InventoryServiceError as exc:
             _handle_service_error(exc)
         return Response(InventoryDetailSerializer(inv).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'])
+    def comparison(self, request, pk=None):
+        inv = self.get_object()
+        try:
+            payload = inventory_service.comparar_inventario_final(inv)
+        except InventoryServiceError as exc:
+            _handle_service_error(exc)
+        return Response(payload)
+
+    @action(detail=True, methods=['get'], url_path='closure-document')
+    def closure_document(self, request, pk=None):
+        inv = self.get_object()
+        if inv.spaces.count() < 1:
+            raise APIError(
+                'spaces_required',
+                'Agrega al menos un espacio antes de generar el paz y salvo.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            pdf_buffer = inventory_service.generar_pdf_paz_y_salvo(inv, request.user)
+        except InventoryServiceError as exc:
+            _handle_service_error(exc)
+        inventory_service.registrar_log_paz_y_salvo(inv, request.user)
+        filename = f'PYS-{inv.property.code}-{timezone.now().strftime("%Y%m%d")}.pdf'
+        response = HttpResponse(pdf_buffer.read(), content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
 
     @action(detail=True, methods=['patch'], url_path='step/1')
     def update_step_1(self, request, pk=None):

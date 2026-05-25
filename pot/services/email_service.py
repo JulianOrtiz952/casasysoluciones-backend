@@ -143,6 +143,63 @@ def enviar_notificacion_ticket_apertura(ticket, request=None):
         _send_html(email, subject, 'email/ticket_opened_staff.html', ctx)
 
 
+def enviar_recordatorio_confirmacion_ticket(ticket, request=None):
+    if not ticket.tenant or not ticket.tenant.is_active:
+        return
+    deadline = ''
+    if ticket.confirmation_deadline_at:
+        deadline = ticket.confirmation_deadline_at.strftime('%d/%m/%Y %H:%M')
+    ctx = {
+        'public_code': ticket.public_code or str(ticket.pk),
+        'property_code': ticket.property.code,
+        'property_address': ticket.property.address,
+        'confirmation_deadline': deadline,
+        'panel_url': _abs_url(request, '/dashboard/tenant/'),
+    }
+    subject = f'Confirme la reparación del ticket {ctx["public_code"]}'
+    _send_html(
+        ticket.tenant.email,
+        subject,
+        'email/ticket_confirmation_reminder.html',
+        ctx,
+    )
+
+
+def enviar_solicitud_info_ticket(ticket, message, request=None):
+    """RF-25: email selectivo al solicitar información adicional."""
+    if not ticket.tenant or not ticket.tenant.is_active:
+        return
+    ctx = {
+        'tenant_name': ticket.tenant.get_full_name() or ticket.tenant.email,
+        'public_code': ticket.public_code or str(ticket.pk),
+        'property_code': ticket.property.code,
+        'property_address': ticket.property.address,
+        'message': message[:2000],
+        'panel_url': _abs_url(request, '/dashboard/tenant/'),
+    }
+    subject = f'Información requerida — ticket {ctx["public_code"]}'
+    _send_html(
+        ticket.tenant.email,
+        subject,
+        'email/ticket_info_request.html',
+        ctx,
+    )
+
+
+def enviar_notificacion_ticket_rechazado(ticket, request=None):
+    if not ticket.tenant or not ticket.tenant.is_active:
+        return
+    ctx = {
+        'public_code': ticket.public_code or str(ticket.pk),
+        'property_code': ticket.property.code,
+        'property_address': ticket.property.address,
+        'rejection_reason': ticket.rejection_reason,
+        'panel_url': _abs_url(request, '/dashboard/'),
+    }
+    subject = f'Ticket {ctx["public_code"]} rechazado'
+    _send_html(ticket.tenant.email, subject, 'email/ticket_rejected_tenant.html', ctx)
+
+
 def enviar_observaciones_inventario_admin(inventory_obj, observation_text):
     from pot.models import CustomUser
 

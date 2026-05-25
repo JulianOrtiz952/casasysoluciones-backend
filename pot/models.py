@@ -283,6 +283,7 @@ class Ticket(models.Model):
     assigned_contractor_name = models.CharField(max_length=200, blank=True, default='')
     rejection_reason = models.TextField(blank=True, default='')
     confirmation_deadline_at = models.DateTimeField(null=True, blank=True)
+    confirmation_reminder_sent_at = models.DateTimeField(null=True, blank=True)
     closed_automatically = models.BooleanField(default=False)
     tenant_confirmed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -304,6 +305,35 @@ class Ticket(models.Model):
     def is_editable_by_tenant(self):
         return self.status in (self.Status.DRAFT, self.Status.OPEN)
 
+    def is_active_for_staff(self):
+        return self.status in (
+            self.Status.OPEN,
+            self.Status.ACCEPTED,
+            self.Status.IN_PROGRESS,
+        )
+
+    def has_repair_evidence(self):
+        return self.attachments.filter(
+            attachment_type=TicketAttachment.AttachmentType.REPAIR_EVIDENCE,
+        ).exists()
+
+    def awaits_tenant_confirmation(self):
+        return (
+            self.status == self.Status.IN_PROGRESS
+            and self.has_repair_evidence()
+            and self.confirmation_deadline_at is not None
+            and self.tenant_confirmed_at is None
+        )
+
+    def is_pending_resolution(self):
+        if self.status == self.Status.OPEN:
+            return True
+        if self.status == self.Status.IN_PROGRESS:
+            return True
+        if self.status == self.Status.ACCEPTED and not (self.assigned_contractor_name or '').strip():
+            return True
+        return False
+
 
 def ticket_attachment_upload(instance, filename):
     code = instance.ticket.public_code or f'id-{instance.ticket_id}'
@@ -311,8 +341,17 @@ def ticket_attachment_upload(instance, filename):
 
 
 class TicketAttachment(models.Model):
+    class AttachmentType(models.TextChoices):
+        TENANT = 'TENANT', 'Adjunto arrendatario'
+        REPAIR_EVIDENCE = 'REPAIR_EVIDENCE', 'Evidencia reparación'
+
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='attachments')
     image = models.ImageField(upload_to=ticket_attachment_upload, max_length=500)
+    attachment_type = models.CharField(
+        max_length=20,
+        choices=AttachmentType.choices,
+        default=AttachmentType.TENANT,
+    )
     uploaded_by = models.ForeignKey(
         CustomUser,
         on_delete=models.SET_NULL,
@@ -327,6 +366,118 @@ class TicketAttachment(models.Model):
 
     def __str__(self):
         return f'{self.ticket.public_code} - adjunto {self.pk}'
+
+
+class TicketStatusLog(models.Model):
+    class Action(models.TextChoices):
+        STATUS_CHANGE = 'STATUS_CHANGE', 'Cambio de estado'
+        REJECT = 'REJECT', 'Rechazo'
+        ASSIGN = 'ASSIGN', 'Asignación maestro'
+        REPAIR_EVIDENCE = 'REPAIR_EVIDENCE', 'Evidencia reparación'
+        FORCE_CLOSE = 'FORCE_CLOSE', 'Cierre forzado'
+        TENANT_CONFIRM = 'TENANT_CONFIRM', 'Confirmación arrendatario'
+        TENANT_DISPUTE = 'TENANT_DISPUTE', 'Inconformidad arrendatario'
+        AUTO_CLOSE = 'AUTO_CLOSE', 'Cierre automático'
+
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='status_logs')
+    from_status = models.CharField(max_length=20, choices=Ticket.Status.choices, blank=True, default='')
+    to_status = models.CharField(max_length=20, choices=Ticket.Status.choices)
+    action = models.CharField(max_length=20, choices=Action.choices, default=Action.STATUS_CHANGE)
+    note = models.TextField(blank=True, default='')
+    changed_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ticket_status_changes',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.ticket.public_code}: {self.from_status} → {self.to_status}'
+
+
+class TicketComment(models.Model):
+    class MessageType(models.TextChoices):
+        NORMAL = 'NORMAL', 'Mensaje'
+        INFO_REQUEST = 'INFO_REQUEST', 'Solicitud de información'
+
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ticket_comments',
+    )
+    body = models.TextField()
+    message_type = models.CharField(
+        max_length=20,
+        choices=MessageType.choices,
+        default=MessageType.NORMAL,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f'{self.ticket.public_code} - {self.message_type} - {self.pk}'
+
+
+class Notification(models.Model):
+    class NotificationType(models.TextChoices):
+        TICKET_COMMENT = 'TICKET_COMMENT', 'Nuevo mensaje en ticket'
+        TICKET_INFO_REQUEST = 'TICKET_INFO_REQUEST', 'Solicitud de información'
+        TICKET_OPENED = 'TICKET_OPENED', 'Ticket abierto'
+        TICKET_REJECTED = 'TICKET_REJECTED', 'Ticket rechazado'
+        TICKET_STATUS = 'TICKET_STATUS', 'Cambio de estado en ticket'
+        OTHER = 'OTHER', 'Otro'
+
+    class Priority(models.TextChoices):
+        LOW = 'LOW', 'Baja'
+        NORMAL = 'NORMAL', 'Normal'
+        HIGH = 'HIGH', 'Alta'
+
+    recipient = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='notifications',
+    )
+    notification_type = models.CharField(max_length=30, choices=NotificationType.choices)
+    priority = models.CharField(
+        max_length=10,
+        choices=Priority.choices,
+        default=Priority.NORMAL,
+    )
+    title = models.CharField(max_length=200)
+    body = models.TextField(blank=True, default='')
+    ticket = models.ForeignKey(
+        Ticket,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='notifications',
+    )
+    ticket_comment = models.ForeignKey(
+        TicketComment,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='notifications',
+    )
+    is_read = models.BooleanField(default=False)
+    read_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.recipient.email} - {self.title}'
 
 
 class Inventory(models.Model):
@@ -459,3 +610,52 @@ class InventoryTenantObservation(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+
+class LeaseContract(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = 'ACTIVE', 'Activo'
+        CLOSED = 'CLOSED', 'Cerrado'
+        CANCELLED = 'CANCELLED', 'Cancelado'
+
+    property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='lease_contracts')
+    tenant = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        related_name='lease_contracts',
+        limit_choices_to={'role': CustomUser.Role.TENANT},
+    )
+    start_date = models.DateField()
+    end_date = models.DateField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    final_inventory = models.ForeignKey(
+        Inventory,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='lease_contract',
+    )
+    closed_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='lease_contracts_closed',
+    )
+    closed_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['property', 'tenant'],
+                condition=models.Q(status='ACTIVE'),
+                name='unique_active_lease_per_property_tenant',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.property.code} - {self.tenant.email} ({self.status})'

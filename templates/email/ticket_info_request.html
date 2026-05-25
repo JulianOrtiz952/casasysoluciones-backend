@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Información requerida</title>
+</head>
+<body>
+    <p>Hola {{ tenant_name }},</p>
+    <p>El equipo de gestión necesita información adicional sobre su ticket <strong>{{ public_code }}</strong>
+        del inmueble <strong>{{ property_code }}</strong> ({{ property_address }}).</p>
+    <p><strong>Mensaje:</strong></p>
+    <p>{{ message }}</p>
+    <p>Puede responder desde el panel de arrendatario:</p>
+    <p><a href="{{ panel_url }}">{{ panel_url }}</a></p>
+</body>
+</html>
