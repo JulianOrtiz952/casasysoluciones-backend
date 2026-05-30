@@ -369,7 +369,7 @@ class StaffTicketViewSet(
     @action(detail=False, methods=['get'])
     def export(self, request):
         queryset = self.filter_queryset(self.get_queryset())
-        fmt = (request.query_params.get('format') or 'csv').lower()
+        fmt = (request.query_params.get('export_format') or 'csv').lower()
         rows = ticket_service.exportar_tickets_queryset(queryset)
 
         if fmt == 'xlsx':

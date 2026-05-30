@@ -37,10 +37,10 @@ todos:
     status: pending
   - id: i2-mod-reportes
     content: "Iteración 2 — Reportes HU-09: RF-29 RF-30 — semáforo, pendientes por resolver, filtros por inmueble/inquilino/fechas, export Excel, ASSISTANT sin reportes admin"
-    status: pending
+    status: completed
   - id: i2-pruebas
     content: "Iteración 2 — Pruebas: CP-RF-18 a CP-RF-30 en api/tests/test_i2_*.py + regresión i1"
-    status: pending
+    status: in_progress
   - id: i2-despliegue
     content: "Iteración 2 — Despliegue final: job cierre automático tickets, rate limit, UserAudit, schema completo, docs/DEPLOY.md"
     status: pending

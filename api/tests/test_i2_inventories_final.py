@@ -1,4 +1,4 @@
-"""Pruebas i2 inventario final — HU-07 (RF-26 a RF-28)."""
+"""Pruebas i2 inventario final — HU-07 (CP-RF-26 a CP-RF-28)."""
 
 from unittest.mock import patch
 

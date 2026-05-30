@@ -195,6 +195,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Admin', 'description': 'Operaciones administrativas (carga Excel)'},
         {'name': 'Legacy', 'description': 'Catálogo público api.Inmueble (compatibilidad)'},
         {'name': 'Catalogs', 'description': 'Enums y catálogos'},
+        {'name': 'Reports', 'description': 'Reportes administrativos HU-09 (RF-29, RF-30). Solo ADMIN.'},
     ],
     'SCHEMA_PATH_PREFIX': '/api/v1/',
 }

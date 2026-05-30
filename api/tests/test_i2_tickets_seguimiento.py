@@ -1,4 +1,4 @@
-"""Pruebas i2 seguimiento tickets — HU-06 (RF-22, RF-23, timeline)."""
+"""Pruebas i2 seguimiento tickets — HU-06 (CP-RF-22, CP-RF-23)."""
 
 import io
 from datetime import timedelta
@@ -90,7 +90,8 @@ class TicketSeguimientoAPITests(TestCase):
         )
         UserPropertyAssociation.objects.create(user=self.tenant, property=self.property)
 
-    def test_tenant_confirm_closes_ticket_rf22(self):
+    def test_cp_rf_22_tenant_confirm_closes_ticket_rf22(self):
+        """CP-RF-22: arrendatario confirma reparación y cierra el ticket."""
         ticket = _ticket_en_confirmacion(self.tenant, self.property)
         self.client.force_authenticate(user=self.tenant)
         r = self.client.post(f'/api/v1/tickets/mine/{ticket.id}/confirm/')
@@ -106,7 +107,8 @@ class TicketSeguimientoAPITests(TestCase):
         ticket.refresh_from_db()
         self.assertEqual(ticket.status, Ticket.Status.CLOSED)
 
-    def test_tenant_dispute_returns_accepted_rf22(self):
+    def test_cp_rf_22_tenant_dispute_returns_accepted_rf22(self):
+        """CP-RF-22 flujo alterno: inconformidad devuelve ticket a ACCEPTED."""
         ticket = _ticket_en_confirmacion(self.tenant, self.property)
         self.client.force_authenticate(user=self.tenant)
         note = 'La reparación no solucionó la fuga reportada en el baño.'
@@ -140,7 +142,8 @@ class TicketSeguimientoAPITests(TestCase):
         r = self.client.post(f'/api/v1/tickets/mine/{ticket.id}/confirm/')
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_staff_timeline_rf23(self):
+    def test_cp_rf_23_staff_timeline_rf23(self):
+        """CP-RF-23: timeline de estados y acciones del ticket."""
         ticket = _ticket_en_confirmacion(self.tenant, self.property)
         TicketStatusLog.objects.create(
             ticket=ticket,
@@ -156,7 +159,8 @@ class TicketSeguimientoAPITests(TestCase):
         self.assertGreaterEqual(len(r.data), 1)
         self.assertIn('action_display', r.data[0])
 
-    def test_close_expired_tickets_command_rf23(self):
+    def test_cp_rf_23_auto_close_expired_confirmation_rf23(self):
+        """CP-RF-23: cierre automático si vence confirmation_deadline_at."""
         ticket = _ticket_en_confirmacion(self.tenant, self.property)
         ticket.confirmation_deadline_at = timezone.now() - timedelta(hours=1)
         ticket.save(update_fields=['confirmation_deadline_at'])

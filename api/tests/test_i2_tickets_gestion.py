@@ -1,4 +1,4 @@
-"""Pruebas i2 gestión de tickets — HU-06 (RF-18 a RF-21, RF-29 parcial)."""
+"""Pruebas i2 gestión de tickets — HU-06 (CP-RF-18 a CP-RF-21, CP-RF-29 parcial)."""
 
 import io
 from unittest.mock import patch
@@ -90,7 +90,8 @@ class TicketManagementAPITests(TestCase):
     def _staff_auth(self, user=None):
         self.client.force_authenticate(user=user or self.admin)
 
-    def test_staff_list_and_filters_rf18(self):
+    def test_cp_rf_18_staff_list_filters_status_transitions_rf18(self):
+        """CP-RF-18: listado staff, filtros y transiciones de estado con TicketStatusLog."""
         _open_ticket(self.tenant, self.property)
         _open_ticket(
             self.tenant,
@@ -111,24 +112,9 @@ class TicketManagementAPITests(TestCase):
         r = self.client.get('/api/v1/tickets/')
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_accept_and_reject_with_reason_rf18_rf19(self):
-        ticket = _open_ticket(self.tenant, self.property)
+    def test_cp_rf_19_reject_reason_min_length_and_notify_rf19(self):
+        """CP-RF-19: rechazo con motivo mínimo 20 caracteres y notificación al arrendatario."""
         self._staff_auth(self.assistant)
-
-        r_accept = self.client.post(
-            f'/api/v1/tickets/{ticket.id}/status/',
-            {'status': 'ACCEPTED'},
-            format='json',
-        )
-        self.assertEqual(r_accept.status_code, status.HTTP_200_OK)
-        self.assertEqual(r_accept.data['status'], 'ACCEPTED')
-        self.assertTrue(
-            TicketStatusLog.objects.filter(
-                ticket=ticket,
-                to_status=Ticket.Status.ACCEPTED,
-            ).exists(),
-        )
-
         ticket2 = _open_ticket(self.tenant, self.property, title='Otro daño')
         r_short = self.client.post(
             f'/api/v1/tickets/{ticket2.id}/reject/',
@@ -150,7 +136,26 @@ class TicketManagementAPITests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn(self.tenant.email, mail.outbox[0].to)
 
-    def test_assign_contractor_moves_in_progress_rf20(self):
+    def test_cp_rf_18_accept_status_transition_logs_rf18(self):
+        """CP-RF-18: aceptar ticket OPEN → ACCEPTED registra historial."""
+        ticket = _open_ticket(self.tenant, self.property)
+        self._staff_auth(self.assistant)
+        r_accept = self.client.post(
+            f'/api/v1/tickets/{ticket.id}/status/',
+            {'status': 'ACCEPTED'},
+            format='json',
+        )
+        self.assertEqual(r_accept.status_code, status.HTTP_200_OK)
+        self.assertEqual(r_accept.data['status'], 'ACCEPTED')
+        self.assertTrue(
+            TicketStatusLog.objects.filter(
+                ticket=ticket,
+                to_status=Ticket.Status.ACCEPTED,
+            ).exists(),
+        )
+
+    def test_cp_rf_20_assign_contractor_moves_in_progress_rf20(self):
+        """CP-RF-20: asignar maestro subcontratado y pasar a IN_PROGRESS."""
         ticket = _open_ticket(self.tenant, self.property, status=Ticket.Status.ACCEPTED)
         self._staff_auth()
         r = self.client.post(
@@ -168,7 +173,8 @@ class TicketManagementAPITests(TestCase):
         self.assertIsNotNone(log)
         self.assertIn('Juan Pérez', log.note)
 
-    def test_repair_evidence_and_close_requires_evidence_rf21_rf18(self):
+    def test_cp_rf_21_repair_evidence_required_to_close_rf21(self):
+        """CP-RF-21: evidencia de reparación obligatoria para cerrar ticket."""
         ticket = _open_ticket(self.tenant, self.property, status=Ticket.Status.IN_PROGRESS)
         self._staff_auth()
 
@@ -226,7 +232,8 @@ class TicketManagementAPITests(TestCase):
         self.assertIsNotNone(log)
         self.assertEqual(log.note, justification)
 
-    def test_stats_pending_resolution_and_traffic_light_rf29(self):
+    def test_cp_rf_29_ticket_stats_pending_resolution_rf29(self):
+        """CP-RF-29: estadísticas con pending_resolution y semáforo en /tickets/stats/."""
         _open_ticket(self.tenant, self.property, priority=Ticket.Priority.HIGH)
         _open_ticket(
             self.tenant,
@@ -255,16 +262,17 @@ class TicketManagementAPITests(TestCase):
             3,
         )
 
-    def test_export_csv(self):
+    def test_cp_rf_18_staff_export_csv_rf18(self):
+        """CP-RF-18: exportación CSV del listado de tickets para staff."""
         _open_ticket(self.tenant, self.property)
         self._staff_auth()
-        r = self.client.get('/api/v1/tickets/export/?format=csv')
+        r = self.client.get('/api/v1/tickets/export/?export_format=csv')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn('text/csv', r['Content-Type'])
         self.assertIn(b'Radicado', r.content)
 
-    def test_mine_routes_still_work_after_staff_router(self):
-        """Regresión: /tickets/mine/ no debe resolverse como staff pk=mine."""
+    def test_regression_i1_mine_routes_not_shadowed_by_staff_router(self):
+        """Regresión i1: /tickets/mine/ no debe resolverse como staff pk=mine."""
         self.client.force_authenticate(user=self.tenant)
         r = self.client.get('/api/v1/tickets/mine/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)

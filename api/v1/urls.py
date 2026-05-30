@@ -11,6 +11,7 @@ urlpatterns = [
     path('', include('api.v1.contract_urls')),
     path('', include('api.v1.ticket_urls')),
     path('', include('api.v1.notification_urls')),
+    path('', include('api.v1.report_urls')),
     path('catalogs/', CatalogView.as_view(), name='v1-catalogs'),
     path('legacy/', include('api.legacy_urls')),
     path('', include('api.legacy_urls')),

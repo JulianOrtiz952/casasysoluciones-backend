@@ -246,6 +246,21 @@ Cierre de contrato (fin de arriendo):
 
 Modelo: `LeaseContract` (`property`, `tenant`, `start_date`, `end_date`, `status`, `final_inventory`).
 
-## Nota de alcance
+## Módulo reportes — HU-09 (RF-29, RF-30)
 
-Reportes administrativos completos quedan en otro módulo de iteración 2.
+Solo rol **ADMIN** (asistente sin acceso — Acta 2).
+
+| RF | Método | Ruta | Notas |
+|----|--------|------|-------|
+| RF-29 | `GET` | `/api/v1/reports/ticket-traffic-light/` | `pending_resolution`, `traffic_light`; filtros opcionales |
+| RF-29 | `GET` | `/api/v1/tickets/stats/` | Mismo semáforo en vista operativa (staff) |
+| RF-30 | `GET` | `/api/v1/reports/properties/{id}/repair-history/` | Tickets cerrados del inmueble |
+| RF-30 | `GET` | `/api/v1/reports/properties-with-open-tickets/` | Inmuebles `RENTED` con tickets activos |
+| RF-30 | `GET` | `/api/v1/reports/tenants-with-active-tickets/` | Arrendatarios con tickets activos |
+| — | `GET` | `/api/v1/reports/summary/` | Conteos por estado, prioridad y tipo de daño |
+| — | `GET` | `/api/v1/reports/export/excel/` | Excel; filtros `date_from`, `date_to`, `property_id`, `tenant_id` |
+| — | `GET` | `/api/v1/search/?q=` | Búsqueda global (inmuebles, arrendatarios, tickets) |
+
+Filtros comunes en reportes: `property_id`, `tenant_id`, `date_from`, `date_to` (sobre `created_at` de tickets, salvo historial de reparaciones que usa `updated_at`).
+
+Semáforo (`traffic_light`) sobre tickets `pending_resolution`: rojo/amarillo/verde por prioridad; gris si llevan más de 3 días sin actualización.

@@ -11,6 +11,8 @@ I1_PATH_PREFIXES = (
     '/api/v1/tickets/',
     '/api/v1/notifications/',
     '/api/v1/admin/',
+    '/api/v1/reports/',
+    '/api/v1/search/',
     '/api/v1/legacy/',
 )
 

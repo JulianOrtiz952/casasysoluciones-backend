@@ -430,20 +430,32 @@ def _traffic_light_bucket(ticket, *, stale_cutoff):
     return 'green'
 
 
-def obtener_estadisticas_tickets():
-    pending_qs = Ticket.objects.filter(
+def pending_resolution_queryset(base_qs=None):
+    """Tickets abiertos, aceptados sin maestro o en proceso (RF-29)."""
+    qs = base_qs if base_qs is not None else Ticket.objects.all()
+    return qs.filter(
         Q(status=Ticket.Status.OPEN)
         | Q(status=Ticket.Status.IN_PROGRESS)
         | Q(status=Ticket.Status.ACCEPTED, assigned_contractor_name=''),
     )
+
+
+def calcular_traffic_light(pending_qs):
     stale_cutoff = timezone.now() - timedelta(days=STALE_TICKET_DAYS)
     traffic_light = {'red': 0, 'yellow': 0, 'green': 0, 'grey': 0}
     for ticket in pending_qs.only('status', 'priority', 'updated_at', 'assigned_contractor_name'):
         bucket = _traffic_light_bucket(ticket, stale_cutoff=stale_cutoff)
         traffic_light[bucket] += 1
+    return traffic_light
+
+
+def obtener_estadisticas_tickets(base_qs=None):
+    base = base_qs if base_qs is not None else Ticket.objects.all()
+    pending_qs = pending_resolution_queryset(base)
+    traffic_light = calcular_traffic_light(pending_qs)
 
     status_counts = dict(
-        Ticket.objects.values('status').annotate(c=Count('id')).values_list('status', 'c'),
+        base.values('status').annotate(c=Count('id')).values_list('status', 'c'),
     )
     return {
         'open': status_counts.get(Ticket.Status.OPEN, 0),
