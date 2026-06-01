@@ -85,6 +85,39 @@ class CustomUser(AbstractUser):
             self.public_code = f'USR-{self.pk:05d}'
             super().save(update_fields=['public_code'])
 
+        if self.role == 'TENANT':
+            try:
+                from api.models import Inquilino
+                nombre = f"{self.first_name} {self.last_name}".strip()
+                if not nombre:
+                    nombre = self.email.split('@')[0]
+                    
+                identificacion = self.document_number
+                if not identificacion:
+                    identificacion = self.public_code or f"USR-{self.pk:05d}"
+                
+                inquilino = Inquilino.objects.filter(email=self.email).first()
+                if inquilino:
+                    inquilino.nombre = nombre
+                    inquilino.telefono = self.phone or ''
+                    if not Inquilino.objects.filter(identificacion=identificacion).exclude(pk=inquilino.pk).exists():
+                        inquilino.identificacion = identificacion
+                    inquilino.save()
+                else:
+                    if Inquilino.objects.filter(identificacion=identificacion).exists():
+                        identificacion = f"DUP-{self.pk}-{identificacion}"[:50]
+                    Inquilino.objects.create(
+                        nombre=nombre,
+                        email=self.email,
+                        telefono=self.phone or '',
+                        identificacion=identificacion
+                    )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error syncing tenant on save: {e}", exc_info=True)
+
+
     def __str__(self):
         return f'{self.email} ({self.get_role_display()})'
 

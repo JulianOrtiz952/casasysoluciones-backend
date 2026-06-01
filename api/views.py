@@ -86,6 +86,42 @@ class InquilinoViewSet(viewsets.ModelViewSet):
     serializer_class = InquilinoSerializer
     permission_classes = [permissions.AllowAny]
 
+    def get_queryset(self):
+        try:
+            from pot.models import CustomUser
+            tenant_users = CustomUser.objects.filter(role='TENANT')
+            for user in tenant_users:
+                nombre = f"{user.first_name} {user.last_name}".strip()
+                if not nombre:
+                    nombre = user.email.split('@')[0]
+                    
+                identificacion = user.document_number
+                if not identificacion:
+                    identificacion = user.public_code or f"USR-{user.pk:05d}"
+                
+                inquilino = Inquilino.objects.filter(email=user.email).first()
+                if inquilino:
+                    inquilino.nombre = nombre
+                    inquilino.telefono = user.phone or ''
+                    if not Inquilino.objects.filter(identificacion=identificacion).exclude(pk=inquilino.pk).exists():
+                        inquilino.identificacion = identificacion
+                    inquilino.save()
+                else:
+                    if Inquilino.objects.filter(identificacion=identificacion).exists():
+                        identificacion = f"DUP-{user.pk}-{identificacion}"[:50]
+                    Inquilino.objects.create(
+                        nombre=nombre,
+                        email=user.email,
+                        telefono=user.phone or '',
+                        identificacion=identificacion
+                    )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error syncing tenants in get_queryset: {e}", exc_info=True)
+
+        return Inquilino.objects.all().order_by('-creado_en')
+
 
 class HistorialAlquilerViewSet(viewsets.ModelViewSet):
     queryset = HistorialAlquiler.objects.all().order_by('-fecha_inicio')
