@@ -15,8 +15,9 @@ from api.v1.serializers.tickets import (
     TicketListSerializer,
     TicketReportProblemSerializer,
 )
-from pot.models import Ticket
+from pot.models import PropertyHistory, Ticket
 from pot.services import ticket_service
+from pot.services.property_service import registrar_evento_propiedad
 from pot.services.ticket_service import TicketServiceError
 
 
@@ -154,5 +155,51 @@ class TenantTicketViewSet(
             )
         except TicketServiceError as exc:
             _handle_service_error(exc)
+        return Response(TicketDetailSerializer(ticket).data)
+
+    @action(detail=True, methods=['patch', 'post'], url_path='update-status')
+    def update_status(self, request, pk=None):
+        user = request.user
+        if not user.is_staff_operative():
+            return Response(
+                {'error': 'No tiene permisos para cambiar el estado de este ticket.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        try:
+            ticket = Ticket.objects.get(pk=pk)
+        except Ticket.DoesNotExist:
+            return Response({'error': 'Ticket no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+            
+        status_val = request.data.get('status')
+        if not status_val or status_val not in dict(Ticket.Status.choices):
+            return Response(
+                {'error': f'Estado no válido. Opciones: {list(dict(Ticket.Status.choices).keys())}'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        assigned_contractor = request.data.get('assigned_contractor_name')
+        
+        ticket.status = status_val
+        if assigned_contractor is not None:
+            ticket.assigned_contractor_name = assigned_contractor.strip()
+            
+        ticket.save()
+        
+        # Log event on property
+        registrar_evento_propiedad(
+            property_obj=ticket.property,
+            event_type=PropertyHistory.EventType.STATUS_CHANGE,
+            description=f'Ticket {ticket.public_code} actualizado a estado {ticket.get_status_display()} por {user.email}',
+            created_by=user,
+            related_user=ticket.tenant,
+            details={
+                'ticket_id': ticket.id,
+                'public_code': ticket.public_code,
+                'new_status': status_val,
+                'assigned_contractor': ticket.assigned_contractor_name,
+            },
+        )
+        
         return Response(TicketDetailSerializer(ticket).data)
 

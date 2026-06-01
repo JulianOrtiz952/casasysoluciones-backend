@@ -59,6 +59,8 @@ class TicketListSerializer(serializers.ModelSerializer):
             'attachments_count',
             'created_at',
             'updated_at',
+            'assigned_contractor_name',
+            'rejection_reason',
         ]
 
 
