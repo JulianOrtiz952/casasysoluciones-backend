@@ -49,13 +49,13 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'email', 'first_name', 'last_name', 'password', 'role', 'role_display', 'is_active', 'document_type', 'document_number', 'phone', 'public_code']
-        extra_kwargs = {'password': {'write_only': True}}
+        extra_kwargs = {'password': {'write_only': True, 'required': False, 'allow_blank': True, 'allow_null': True}}
 
     def create(self, validated_data):
         role = validated_data.pop('role', User.Role.ASSISTANT)
         password = validated_data.pop('password', None)
         document_number = validated_data.get('document_number')
-        if document_number:
+        if not password and document_number:
             password = document_number
         elif not password:
             password = 'DefaultPassword123!'
@@ -70,7 +70,9 @@ class UserSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         role = validated_data.pop('role', None)
         if 'password' in validated_data:
-            instance.set_password(validated_data.pop('password'))
+            pwd = validated_data.pop('password')
+            if pwd:
+                instance.set_password(pwd)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
