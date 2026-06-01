@@ -87,6 +87,34 @@ class UserCreateSerializer(serializers.Serializer):
         allow_empty=False,
     )
 
+    def validate_first_name(self, value):
+        import re
+        if value and not re.match(r'^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]*$', value):
+            raise serializers.ValidationError("El nombre no debe contener caracteres especiales, solo letras, espacios y tildes.")
+        return value
+
+    def validate_last_name(self, value):
+        import re
+        if value and not re.match(r'^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]*$', value):
+            raise serializers.ValidationError("El apellido no debe contener caracteres especiales, solo letras, espacios y tildes.")
+        return value
+
+    def validate_phone(self, value):
+        import re
+        if value:
+            value = value.strip()
+            if value and not re.match(r'^\d{10}$', value):
+                raise serializers.ValidationError("El teléfono celular debe tener exactamente 10 dígitos numéricos.")
+        return value
+
+    def validate_document_number(self, value):
+        import re
+        if value:
+            value = value.strip()
+            if value and not re.match(r'^\d{8,11}$', value):
+                raise serializers.ValidationError("El número de identificación debe tener entre 8 y 11 dígitos numéricos.")
+        return value
+
 
 class UserUpdateSerializer(serializers.Serializer):
     first_name = serializers.CharField(required=False, allow_blank=True)
@@ -98,6 +126,34 @@ class UserUpdateSerializer(serializers.Serializer):
         allow_blank=True,
     )
     document_number = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+    def validate_first_name(self, value):
+        import re
+        if value and not re.match(r'^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]*$', value):
+            raise serializers.ValidationError("El nombre no debe contener caracteres especiales, solo letras, espacios y tildes.")
+        return value
+
+    def validate_last_name(self, value):
+        import re
+        if value and not re.match(r'^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]*$', value):
+            raise serializers.ValidationError("El apellido no debe contener caracteres especiales, solo letras, espacios y tildes.")
+        return value
+
+    def validate_phone(self, value):
+        import re
+        if value:
+            value = value.strip()
+            if value and not re.match(r'^\d{10}$', value):
+                raise serializers.ValidationError("El teléfono celular debe tener exactamente 10 dígitos numéricos.")
+        return value
+
+    def validate_document_number(self, value):
+        import re
+        if value:
+            value = value.strip()
+            if value and not re.match(r'^\d{8,11}$', value):
+                raise serializers.ValidationError("El número de identificación debe tener entre 8 y 11 dígitos numéricos.")
+        return value
 
 
 class RoleChangeSerializer(serializers.Serializer):

@@ -121,6 +121,89 @@ class MeView(APIView):
     def get(self, request):
         return Response(UserMeSerializer(request.user).data)
 
+    def patch(self, request):
+        user = request.user
+        
+        first_name = request.data.get('first_name')
+        last_name = request.data.get('last_name')
+        phone = request.data.get('phone')
+        document_type = request.data.get('document_type')
+        document_number = request.data.get('document_number')
+        password = request.data.get('password')
+        
+        import re
+        name_regex = re.compile(r'^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]*$')
+        
+        if first_name is not None:
+            first_name = first_name.strip()
+            if not name_regex.match(first_name):
+                raise APIError(
+                    'invalid_name',
+                    'El nombre no debe contener caracteres especiales, solo letras, espacios y tildes.',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                
+        if last_name is not None:
+            last_name = last_name.strip()
+            if not name_regex.match(last_name):
+                raise APIError(
+                    'invalid_lastname',
+                    'El apellido no debe contener caracteres especiales, solo letras, espacios y tildes.',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                
+        if phone is not None:
+            phone = phone.strip()
+            if phone and not re.match(r'^\d{10}$', phone):
+                raise APIError(
+                    'invalid_phone',
+                    'El teléfono celular debe tener exactamente 10 dígitos numéricos.',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                
+        if document_number is not None:
+            document_number = document_number.strip()
+            if document_number and not re.match(r'^\d{8,11}$', document_number):
+                raise APIError(
+                    'invalid_document',
+                    'El número de identificación debe tener entre 8 y 11 dígitos numéricos.',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+                
+            if document_number and CustomUser.objects.filter(document_number=document_number).exclude(pk=user.pk).exists():
+                raise APIError(
+                    'document_exists',
+                    'Este número de documento ya está registrado.',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
+        if first_name is not None:
+            user.first_name = first_name
+        if last_name is not None:
+            user.last_name = last_name
+        if phone is not None:
+            user.phone = phone
+        if document_type is not None:
+            user.document_type = document_type
+        if document_number is not None:
+            user.document_number = document_number
+            
+        if password:
+            try:
+                validate_password(password, user=user)
+            except DjangoValidationError as exc:
+                raise APIError(
+                    'weak_password',
+                    'La contraseña no cumple los requisitos de seguridad.',
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    details={'messages': exc.messages},
+                ) from exc
+            user.set_password(password)
+            user.password_changed = True
+            
+        user.save()
+        return Response(UserMeSerializer(user).data)
+
 
 class PasswordResetRequestView(APIView):
     permission_classes = [permissions.AllowAny]

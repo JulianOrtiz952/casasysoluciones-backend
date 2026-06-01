@@ -51,6 +51,34 @@ class UserSerializer(serializers.ModelSerializer):
         fields = ['id', 'email', 'first_name', 'last_name', 'password', 'role', 'role_display', 'is_active', 'document_type', 'document_number', 'phone', 'public_code']
         extra_kwargs = {'password': {'write_only': True, 'required': False, 'allow_blank': True, 'allow_null': True}}
 
+    def validate_first_name(self, value):
+        import re
+        if value and not re.match(r'^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]*$', value):
+            raise serializers.ValidationError("El nombre no debe contener caracteres especiales, solo letras, espacios y tildes.")
+        return value
+
+    def validate_last_name(self, value):
+        import re
+        if value and not re.match(r'^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s]*$', value):
+            raise serializers.ValidationError("El apellido no debe contener caracteres especiales, solo letras, espacios y tildes.")
+        return value
+
+    def validate_phone(self, value):
+        import re
+        if value:
+            value = value.strip()
+            if value and not re.match(r'^\d{10}$', value):
+                raise serializers.ValidationError("El teléfono celular debe tener exactamente 10 dígitos numéricos.")
+        return value
+
+    def validate_document_number(self, value):
+        import re
+        if value:
+            value = value.strip()
+            if value and not re.match(r'^\d{8,11}$', value):
+                raise serializers.ValidationError("El número de identificación debe tener entre 8 y 11 dígitos numéricos.")
+        return value
+
     def create(self, validated_data):
         role = validated_data.pop('role', User.Role.ASSISTANT)
         password = validated_data.pop('password', None)
