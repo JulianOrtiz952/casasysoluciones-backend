@@ -27,9 +27,11 @@ load_dotenv(BASE_DIR / '.env')
 SECRET_KEY = 'django-insecure-)v0_=^ldpr%a8s9e$91r4a85yabi&=9z&6as!=9)iadsh@9g#m'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',') if os.getenv('ALLOWED_HOSTS') else ['*']
+CORS_ALLOWED_ORIGINS = os.getenv('CORS_ALLOWED_ORIGINS', '').split(',') if os.getenv('CORS_ALLOWED_ORIGINS') else []
+CSRF_TRUSTED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', '').split(',') if os.getenv('CSRF_TRUSTED_ORIGINS') else []
 
 
 # Application definition
@@ -165,7 +167,10 @@ POT_PUBLIC_BASE_URL = os.environ.get('POT_PUBLIC_BASE_URL', '')
 
 STATICFILES_DIRS = [BASE_DIR / 'static']
 
-CORS_ALLOW_ALL_ORIGINS = True  # For development purposes
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = True
+else:
+    CORS_ALLOW_ALL_ORIGINS = False
 
 from datetime import timedelta
 import os
