@@ -17,7 +17,7 @@ from api.v1.serializers.users import (
     UserListSerializer,
     UserUpdateSerializer,
 )
-from pot.models import CustomUser, Property
+from pot.models import CustomUser, Property, UserAudit
 from pot.services import user_service
 from pot.services.user_service import UserServiceError
 
@@ -161,6 +161,25 @@ class UserViewSet(viewsets.ModelViewSet):
             return Response(warning, status=status.HTTP_409_CONFLICT)
 
         return Response(UserDetailSerializer(updated).data)
+
+    @action(detail=True, methods=['post'], url_path='reactivate')
+    def reactivate(self, request, pk=None):
+        target = self.get_object()
+        if target.is_active:
+            raise APIError(
+                'already_active',
+                'El usuario ya está activo.',
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        target.is_active = True
+        target.save(update_fields=['is_active', 'updated_at'])
+        UserAudit.objects.create(
+            user=target,
+            action='REACTIVATED',
+            details={},
+            changed_by=request.user,
+        )
+        return Response(UserDetailSerializer(target).data)
 
 
 class TenantViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
