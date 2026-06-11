@@ -35,10 +35,14 @@ def _issue_tokens(user):
     refresh['email'] = user.email
     refresh['role'] = user.role
     refresh['public_code'] = user.public_code or ''
+    refresh['first_name'] = user.first_name
+    refresh['last_name'] = user.last_name
     access = refresh.access_token
     access['email'] = user.email
     access['role'] = user.role
     access['public_code'] = user.public_code or ''
+    access['first_name'] = user.first_name
+    access['last_name'] = user.last_name
     return {
         'access': str(access),
         'refresh': str(refresh),

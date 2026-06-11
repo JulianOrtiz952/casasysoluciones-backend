@@ -41,6 +41,7 @@ class CustomUser(AbstractUser):
         ADMIN = 'ADMIN', 'Administrador'
         ASSISTANT = 'ASSISTANT', 'Asistente Administrativo'
         TENANT = 'TENANT', 'Arrendatario'
+        TECHNICIAN = 'TECHNICIAN', 'Técnico'
 
     class DocumentType(models.TextChoices):
         CC = 'CC', 'Cédula de ciudadanía'
@@ -372,6 +373,7 @@ class Ticket(models.Model):
         PAINTING = 'PAINTING', 'Pintura'
         CARPENTRY = 'CARPENTRY', 'Carpintería'
         APPLIANCE = 'APPLIANCE', 'Electrodoméstico'
+        CLOSURE = 'CLOSURE', 'Cierre de Contrato'
         OTHER = 'OTHER', 'Otro'
 
     class Priority(models.TextChoices):
@@ -403,12 +405,24 @@ class Ticket(models.Model):
     )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
     assigned_contractor_name = models.CharField(max_length=200, blank=True, default='')
+    assigned_technicians = models.ManyToManyField(
+        CustomUser,
+        blank=True,
+        related_name='assigned_tickets',
+        limit_choices_to={'role': 'TECHNICIAN'},
+    )
     rejection_reason = models.TextField(blank=True, default='')
     confirmation_deadline_at = models.DateTimeField(null=True, blank=True)
     closed_automatically = models.BooleanField(default=False)
     tenant_confirmed_at = models.DateTimeField(null=True, blank=True)
+    final_space_conditions = models.JSONField(
+        null=True,
+        blank=True,
+        help_text='Condiciones finales de cada espacio registradas por el técnico al cerrar el contrato.',
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
 
     class Meta:
         ordering = ['-created_at']
@@ -451,6 +465,39 @@ class TicketAttachment(models.Model):
         return f'{self.ticket.public_code} - adjunto {self.pk}'
 
 
+class TicketHistory(models.Model):
+    class Action(models.TextChoices):
+        CREATED = 'CREATED', 'Ticket creado'
+        STATUS_CHANGE = 'STATUS_CHANGE', 'Cambio de estado'
+        TECHNICIAN_ASSIGNED = 'TECHNICIAN_ASSIGNED', 'Técnico asignado'
+        ATTACHMENT_ADDED = 'ATTACHMENT_ADDED', 'Adjunto agregado'
+        CONFIRMED = 'CONFIRMED', 'Reparación confirmada'
+        PROBLEM_REPORTED = 'PROBLEM_REPORTED', 'Problema reportado'
+        COMPLETED_BY_TECHNICIAN = 'COMPLETED_BY_TECHNICIAN', 'Completado por técnico'
+        CONTRACTOR_ASSIGNED = 'CONTRACTOR_ASSIGNED', 'Contratista asignado'
+
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='history')
+    action = models.CharField(max_length=30, choices=Action.choices)
+    description = models.TextField()
+    old_value = models.CharField(max_length=200, blank=True, default='')
+    new_value = models.CharField(max_length=200, blank=True, default='')
+    created_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ticket_history_events',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name_plural = 'ticket histories'
+
+    def __str__(self):
+        return f'{self.ticket.public_code} - {self.get_action_display()} - {self.created_at}'
+
+
 class Inventory(models.Model):
     class Type(models.TextChoices):
         INITIAL = 'INITIAL', 'Inicial'
@@ -459,6 +506,7 @@ class Inventory(models.Model):
     class Status(models.TextChoices):
         IN_PROGRESS = 'IN_PROGRESS', 'En registro'
         PENDING_SIGNATURE = 'PENDING_SIGNATURE', 'Pendiente de firma'
+        PENDING_APPROVAL = 'PENDING_APPROVAL', 'Pendiente de aprobación'
         OBSERVATIONS_PENDING = 'OBSERVATIONS_PENDING', 'Observaciones pendientes'
         ACCEPTED = 'ACCEPTED', 'Aceptado'
         CLOSED = 'CLOSED', 'Cerrado'

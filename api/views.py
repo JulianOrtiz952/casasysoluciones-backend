@@ -27,6 +27,11 @@ class IsAdmin(permissions.BasePermission):
         return request.user and request.user.is_authenticated and (request.user.role == 'ADMIN' or request.user.is_superuser)
 
 
+class IsStaffOperative(permissions.BasePermission):
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated and (request.user.role in ('ADMIN', 'ASSISTANT') or request.user.is_superuser)
+
+
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
 
@@ -154,4 +159,11 @@ class ChangePasswordView(APIView):
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all().order_by('-date_joined')
     serializer_class = UserSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [IsStaffOperative]
+
+    def get_queryset(self):
+        qs = User.objects.all().order_by('-date_joined')
+        role = self.request.query_params.get('role')
+        if role:
+            qs = qs.filter(role=role)
+        return qs

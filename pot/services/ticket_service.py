@@ -1,10 +1,22 @@
 from django.db import transaction
 
-from pot.models import CustomUser, Property, PropertyHistory, Ticket, TicketAttachment
+from pot.models import CustomUser, Property, PropertyHistory, Ticket, TicketAttachment, TicketHistory
 from pot.services.inventory_service import validar_archivo_imagen
 from pot.services.property_service import registrar_evento_propiedad
 
-MAX_TICKET_ATTACHMENTS = 5
+MAX_TICKET_ATTACHMENTS = 10
+
+
+def registrar_historial_ticket(ticket, action, description, created_by=None, old_value='', new_value=''):
+    """Register a history event on a ticket."""
+    return TicketHistory.objects.create(
+        ticket=ticket,
+        action=action,
+        description=description,
+        old_value=old_value or '',
+        new_value=new_value or '',
+        created_by=created_by,
+    )
 
 
 class TicketServiceError(Exception):
@@ -121,6 +133,14 @@ def crear_ticket_arrendatario(
             },
         )
 
+    registrar_historial_ticket(
+        ticket,
+        TicketHistory.Action.CREATED,
+        f'Ticket creado por {tenant.email}',
+        created_by=tenant,
+        new_value=status,
+    )
+
     return ticket
 
 
@@ -186,14 +206,37 @@ def obtener_ticket_por_usuario(user, ticket_id):
 @transaction.atomic
 def confirmar_ticket_reparacion(user, ticket_id):
     ticket = obtener_ticket_por_usuario(user, ticket_id)
+
+    # Tickets de Cierre de Contrato: solo admin/asistente pueden aprobar
+    is_closure = ticket.damage_type == Ticket.DamageType.CLOSURE
+    if is_closure:
+        if not user.is_staff_operative():
+            raise TicketServiceError(
+                'not_authorized',
+                'Solo un administrador o asistente puede aprobar un ticket de Cierre de Contrato.',
+            )
+    else:
+        # Tickets normales: solo el inquilino puede confirmar
+        if user.role != CustomUser.Role.TENANT or user.pk != ticket.tenant_id:
+            raise TicketServiceError(
+                'not_authorized',
+                'Solo el inquilino asociado puede confirmar este ticket.',
+            )
+
+    old_status = ticket.status
     ticket.status = Ticket.Status.CLOSED
     ticket.tenant_confirmed_at = timezone.now()
     ticket.save()
-    
+
+    if is_closure:
+        description_close = f'Ticket {ticket.public_code} aprobado y cerrado por {user.email} (administrador/asistente). Arrendamiento finalizado.'
+    else:
+        description_close = f'Ticket {ticket.public_code} confirmado y cerrado por el inquilino'
+
     registrar_evento_propiedad(
         property_obj=ticket.property,
         event_type=PropertyHistory.EventType.TICKET_CLOSED,
-        description=f'Ticket {ticket.public_code} confirmado y cerrado por el inquilino',
+        description=description_close,
         created_by=user,
         related_user=ticket.tenant,
         details={
@@ -202,12 +245,34 @@ def confirmar_ticket_reparacion(user, ticket_id):
             'confirmed_at': ticket.tenant_confirmed_at.isoformat(),
         },
     )
+    registrar_historial_ticket(
+        ticket,
+        TicketHistory.Action.CONFIRMED,
+        f'Cierre aprobado por {user.email}' if is_closure else f'Reparación confirmada por {user.email}',
+        created_by=user,
+        old_value=old_status,
+        new_value=Ticket.Status.CLOSED,
+    )
+
+    # Si es ticket de cierre, desasociar el inmueble del inquilino
+    if is_closure and ticket.tenant:
+        try:
+            from pot.services.user_service import desasociar_inmueble_arrendatario
+            desasociar_inmueble_arrendatario(ticket.tenant, ticket.property, user)
+        except Exception as exc:
+            # Loguear pero no bloquear el cierre del ticket
+            import logging
+            logging.getLogger(__name__).error(
+                'Error al desasociar inmueble tras cierre de contrato: %s', exc
+            )
+
     return ticket
 
 
 @transaction.atomic
 def reportar_problema_reparacion(user, ticket_id, reason):
     ticket = obtener_ticket_por_usuario(user, ticket_id)
+    old_status = ticket.status
     ticket.status = Ticket.Status.IN_PROGRESS
     ticket.rejection_reason = reason.strip()
     ticket.save()
@@ -224,5 +289,169 @@ def reportar_problema_reparacion(user, ticket_id, reason):
             'rejection_reason': reason,
         },
     )
+    registrar_historial_ticket(
+        ticket,
+        TicketHistory.Action.PROBLEM_REPORTED,
+        f'Problema reportado por {user.email}: {reason}',
+        created_by=user,
+        old_value=old_status,
+        new_value=Ticket.Status.IN_PROGRESS,
+    )
     return ticket
+
+
+@transaction.atomic
+def agregar_adjunto_tecnico(user, ticket_id, image_file):
+    """Allow the assigned technician to upload repair evidence."""
+    try:
+        ticket = Ticket.objects.prefetch_related(
+            'attachments', 'assigned_technicians',
+        ).get(pk=ticket_id)
+    except Ticket.DoesNotExist:
+        raise TicketServiceError('not_found', 'Ticket no encontrado.') from None
+
+    if not ticket.assigned_technicians.filter(id=user.pk).exists():
+        raise TicketServiceError(
+            'not_assigned',
+            'Solo el técnico asignado puede subir evidencias a este ticket.',
+        )
+
+    count = ticket.attachments.count()
+    if count >= MAX_TICKET_ATTACHMENTS:
+        raise TicketServiceError(
+            'max_attachments',
+            f'Máximo {MAX_TICKET_ATTACHMENTS} archivos por ticket.',
+            {'max': MAX_TICKET_ATTACHMENTS, 'current': count},
+        )
+    ok, err = validar_archivo_imagen(image_file)
+    if not ok:
+        raise TicketServiceError('invalid_image', err or 'Archivo no válido.')
+
+    attachment = TicketAttachment.objects.create(
+        ticket=ticket,
+        image=image_file,
+        uploaded_by=user,
+    )
+    registrar_historial_ticket(
+        ticket,
+        TicketHistory.Action.ATTACHMENT_ADDED,
+        f'Evidencia de reparación agregada por técnico {user.email}',
+        created_by=user,
+    )
+    return attachment
+
+
+@transaction.atomic
+def completar_ticket_tecnico(user, ticket_id):
+    """Mark a ticket as completed by the assigned technician.
+    Requires at least one attachment uploaded by the technician."""
+    try:
+        ticket = Ticket.objects.select_related(
+            'property', 'tenant'
+        ).prefetch_related('assigned_technicians').get(pk=ticket_id)
+    except Ticket.DoesNotExist:
+        raise TicketServiceError('not_found', 'Ticket no encontrado.') from None
+
+    if not ticket.assigned_technicians.filter(id=user.pk).exists():
+        raise TicketServiceError(
+            'not_assigned',
+            'Solo el técnico asignado puede completar este ticket.',
+        )
+
+    tech_attachments = ticket.attachments.filter(uploaded_by__in=ticket.assigned_technicians.all()).count()
+    if tech_attachments == 0:
+        raise TicketServiceError(
+            'no_evidence',
+            'Debe adjuntar al menos una evidencia de la reparación antes de completar el ticket.',
+        )
+
+    old_status = ticket.status
+    ticket.status = Ticket.Status.IN_PROGRESS
+    ticket.save()
+
+    registrar_evento_propiedad(
+        property_obj=ticket.property,
+        event_type=PropertyHistory.EventType.STATUS_CHANGE,
+        description=f'Técnico {user.email} completó la reparación del ticket {ticket.public_code}',
+        created_by=user,
+        related_user=ticket.tenant,
+        details={
+            'ticket_id': ticket.id,
+            'public_code': ticket.public_code,
+            'technician': user.email,
+        },
+    )
+    is_closure = ticket.damage_type == Ticket.DamageType.CLOSURE
+    pending_msg = (
+        f'Inventario final completado por técnico {user.email}. Pendiente aprobación del administrador.'
+        if is_closure
+        else f'Reparación completada por técnico {user.email}. Pendiente confirmación del inquilino.'
+    )
+    registrar_historial_ticket(
+        ticket,
+        TicketHistory.Action.COMPLETED_BY_TECHNICIAN,
+        pending_msg,
+        created_by=user,
+        old_value=old_status,
+        new_value=Ticket.Status.IN_PROGRESS,
+    )
+    return ticket
+
+
+@transaction.atomic
+def rechazar_ticket_por_admin(user, ticket_id, reason):
+    """Allow an admin or assistant to reject a ticket with a mandatory reason."""
+    if not user.is_staff_operative():
+        raise TicketServiceError(
+            'not_authorized',
+            'Solo administradores o asistentes pueden rechazar tickets.',
+        )
+
+    ticket = obtener_ticket_por_usuario(user, ticket_id)
+
+    cleaned_reason = (reason or '').strip()
+    if not cleaned_reason:
+        raise TicketServiceError(
+            'reason_required',
+            'La descripción del rechazo es obligatoria.',
+        )
+
+    old_status = ticket.status
+    ticket.status = Ticket.Status.REJECTED
+    ticket.rejection_reason = cleaned_reason
+    ticket.save()
+
+    is_closure = ticket.damage_type == Ticket.DamageType.CLOSURE
+    description_reject = (
+        f'Solicitud de cierre del ticket {ticket.public_code} rechazada por administrador {user.email}. Motivo: {cleaned_reason}'
+        if is_closure
+        else f'Ticket {ticket.public_code} rechazado por {user.email}. Motivo: {cleaned_reason}'
+    )
+
+    registrar_evento_propiedad(
+        property_obj=ticket.property,
+        event_type=PropertyHistory.EventType.STATUS_CHANGE,
+        description=description_reject,
+        created_by=user,
+        related_user=ticket.tenant,
+        details={
+            'ticket_id': ticket.id,
+            'public_code': ticket.public_code,
+            'rejection_reason': cleaned_reason,
+            'old_status': old_status,
+            'new_status': Ticket.Status.REJECTED,
+        },
+    )
+
+    registrar_historial_ticket(
+        ticket,
+        TicketHistory.Action.STATUS_CHANGE,
+        f'Ticket rechazado por {user.email}. Motivo: {cleaned_reason}',
+        created_by=user,
+        old_value=old_status,
+        new_value=Ticket.Status.REJECTED,
+    )
+
+    return ticket
+
 

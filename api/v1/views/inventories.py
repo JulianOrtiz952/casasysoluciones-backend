@@ -63,7 +63,7 @@ class InventoryViewSet(
             'spaces__photos',
             'tenant_observations',
         )
-        if self.request.user.is_staff_operative():
+        if self.request.user.is_staff_operative() or self.request.user.role == CustomUser.Role.TECHNICIAN:
             inv_type = self.request.query_params.get('type') or self.request.query_params.get('inventory_type')
             if inv_type:
                 qs = qs.filter(inventory_type=inv_type)
@@ -107,13 +107,13 @@ class InventoryViewSet(
         if self.action in ('pdf',):
             return [IsAuthenticated(), CanAccessInventory()]
         if self.action == 'list':
-            return [IsAuthenticated(), IsStaffOperative()]
+            return [IsAuthenticated()]
         if self.action == 'retrieve':
             return [IsAuthenticated(), CanAccessInventory()]
         return [IsAuthenticated()]
 
     def list(self, request, *args, **kwargs):
-        if not request.user.is_staff_operative():
+        if not request.user.is_staff_operative() and request.user.role != CustomUser.Role.TENANT:
             raise APIError('forbidden', 'Sin permiso.', status_code=status.HTTP_403_FORBIDDEN)
         return super().list(request, *args, **kwargs)
 
@@ -225,6 +225,78 @@ class InventoryViewSet(
             inventory_service.firmar_inventario(inv, request.user, request)
         except InventoryServiceError as exc:
             _handle_service_error(exc)
+        inv.refresh_from_db()
+        return Response(InventoryDetailSerializer(inv).data)
+
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        user = request.user
+        if not user.is_staff_operative() and user.role != CustomUser.Role.ADMIN:
+            raise APIError('forbidden', 'Solo personal administrativo puede aprobar este inventario.', status_code=status.HTTP_403_FORBIDDEN)
+        
+        inv = get_object_or_404(Inventory, pk=pk)
+        if inv.inventory_type != Inventory.Type.FINAL:
+            raise APIError('invalid_type', 'Solo se pueden aprobar inventarios de tipo FINAL.', status_code=status.HTTP_400_BAD_REQUEST)
+        
+        if inv.status != Inventory.Status.PENDING_APPROVAL:
+            raise APIError('invalid_status', 'El inventario no está pendiente de aprobación.', status_code=status.HTTP_400_BAD_REQUEST)
+
+        # Approve the inventory
+        inv.status = Inventory.Status.ACCEPTED
+        inv.signed_at = timezone.now()
+        inv.signed_by = user
+        inv.save()
+
+        # Dissociate the tenant (releases the property to AVAILABLE)
+        from pot.services import user_service
+        from pot.services.user_service import UserServiceError
+        try:
+            user_service.desasociar_inmueble_arrendatario(inv.tenant, inv.property, user)
+        except UserServiceError as exc:
+            if exc.code != 'association_not_found':
+                raise APIError('dissociation_error', str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            raise APIError('dissociation_error', str(exc), status_code=status.HTTP_400_BAD_REQUEST)
+
+        # Find the active closure ticket for this property and tenant and close it
+        from pot.models import Ticket, TicketHistory
+        from pot.services.ticket_service import registrar_historial_ticket
+        from pot.services.property_service import registrar_evento_propiedad
+        from pot.models import PropertyHistory
+
+        closure_ticket = Ticket.objects.filter(
+            property=inv.property,
+            tenant=inv.tenant,
+            damage_type=Ticket.DamageType.CLOSURE,
+            status__in=[Ticket.Status.OPEN, Ticket.Status.ACCEPTED, Ticket.Status.IN_PROGRESS]
+        ).first()
+
+        if closure_ticket:
+            old_status = closure_ticket.status
+            closure_ticket.status = Ticket.Status.CLOSED
+            closure_ticket.save()
+            
+            registrar_evento_propiedad(
+                property_obj=inv.property,
+                event_type=PropertyHistory.EventType.TICKET_CLOSED,
+                description=f'Ticket de cierre {closure_ticket.public_code} cerrado tras aprobación de inventario final',
+                created_by=user,
+                related_user=inv.tenant,
+                details={
+                    'ticket_id': closure_ticket.id,
+                    'public_code': closure_ticket.public_code,
+                    'inventory_id': inv.id,
+                }
+            )
+            registrar_historial_ticket(
+                closure_ticket,
+                TicketHistory.Action.CONFIRMED,
+                f'Ticket de cierre finalizado tras aprobación del inventario final por {user.email}',
+                created_by=user,
+                old_value=old_status,
+                new_value=Ticket.Status.CLOSED,
+            )
+
         inv.refresh_from_db()
         return Response(InventoryDetailSerializer(inv).data)
 

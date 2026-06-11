@@ -27,11 +27,10 @@ class UserAuditSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserAudit
         fields = ['id', 'action', 'details', 'changed_by_email', 'created_at']
-
-
 class UserListSerializer(serializers.ModelSerializer):
     role_display = serializers.CharField(source='get_role_display', read_only=True)
     active_properties_count = serializers.SerializerMethodField()
+    active_properties = serializers.SerializerMethodField()
 
     class Meta:
         model = CustomUser
@@ -48,11 +47,17 @@ class UserListSerializer(serializers.ModelSerializer):
             'role_display',
             'is_active',
             'active_properties_count',
+            'active_properties',
             'created_at',
         ]
 
     def get_active_properties_count(self, obj):
         return obj.property_associations.filter(dissociated_at__isnull=True).count()
+
+    def get_active_properties(self, obj):
+        active_assocs = obj.property_associations.filter(dissociated_at__isnull=True).select_related('property')
+        properties = [assoc.property for assoc in active_assocs]
+        return PropertyBriefSerializer(properties, many=True).data
 
 
 class UserDetailSerializer(UserListSerializer):

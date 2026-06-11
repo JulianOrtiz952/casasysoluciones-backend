@@ -440,6 +440,8 @@ def usuario_puede_acceder_inventario(user, inventory):
         return False
     if user.is_staff_operative():
         return True
+    if user.role == CustomUser.Role.TECHNICIAN:
+        return True
     return user.role == CustomUser.Role.TENANT and inventory.tenant_id == user.pk
 
 
@@ -496,6 +498,14 @@ def crear_inventario_inicial(created_by, *, property_id, tenant_id, delivery_dat
                 property=prop,
                 created_by=created_by,
             )
+        prop.status = Property.Status.RENTED
+        prop.save(update_fields=['status', 'updated_at'])
+    elif inventory_type == Inventory.Type.FINAL:
+        from pot.services import user_service
+        try:
+            user_service.desasociar_inmueble_arrendatario(tenant, prop, created_by)
+        except Exception:
+            pass
 
     try:
         inv = Inventory.objects.create(
@@ -616,13 +626,19 @@ def guardar_borrador(inventory):
 
 
 def finalizar_inventario(inventory, request):
-    if inventory.status != Inventory.Status.IN_PROGRESS:
+    if not inventory.is_editable():
         raise InventoryServiceError('invalid_status', 'Solo se puede finalizar un inventario en registro.')
     if inventory.spaces.count() < 1:
         raise InventoryServiceError('spaces_required', 'Agrega al menos un espacio antes de finalizar.')
-    inventory.status = Inventory.Status.PENDING_SIGNATURE
+    
+    if inventory.inventory_type == Inventory.Type.FINAL:
+        inventory.status = Inventory.Status.PENDING_APPROVAL
+    else:
+        inventory.status = Inventory.Status.PENDING_SIGNATURE
+
     inventory.save(update_fields=['status', 'updated_at'])
-    notificar_inventario_pendiente_firma(inventory, request)
+    if inventory.status == Inventory.Status.PENDING_SIGNATURE:
+        notificar_inventario_pendiente_firma(inventory, request)
     return inventory
 
 

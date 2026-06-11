@@ -302,3 +302,104 @@ class InventoryInitialAPITests(TestCase):
             format='json',
         )
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_tenant_cancellation_creates_closure_ticket(self):
+        from pot.models import Ticket
+        self.client.force_authenticate(user=self.tenant)
+        r = self.client.delete(f'/api/v1/tenants/{self.tenant.id}/properties/{self.property.id}/')
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data['status'], 'request_created')
+        self.assertIn('ticket_id', r.data)
+        
+        ticket = Ticket.objects.get(id=r.data['ticket_id'])
+        self.assertEqual(ticket.damage_type, Ticket.DamageType.CLOSURE)
+        self.assertEqual(ticket.status, Ticket.Status.OPEN)
+        
+        # Verify tenant is still active
+        self.assertTrue(UserPropertyAssociation.objects.filter(user=self.tenant, property=self.property, dissociated_at__isnull=True).exists())
+        self.assertEqual(self.property.status, Property.Status.RENTED)
+
+        # Calling again should return 409 conflict
+        r_dup = self.client.delete(f'/api/v1/tenants/{self.tenant.id}/properties/{self.property.id}/')
+        self.assertEqual(r_dup.status_code, status.HTTP_409_CONFLICT)
+
+    def test_finalize_final_inventory_sets_pending_approval(self):
+        self.client.force_authenticate(user=self.admin)
+        r_create = self.client.post(
+            '/api/v1/inventories/',
+            {
+                'property_id': self.property.id,
+                'tenant_id': self.tenant.id,
+                'delivery_date': '2026-06-01',
+                'inventory_type': 'FINAL',
+            },
+            format='json',
+        )
+        self.assertEqual(r_create.status_code, status.HTTP_201_CREATED)
+        inv_id = r_create.data['id']
+        
+        # Add space
+        self.client.post(
+            f'/api/v1/inventories/{inv_id}/spaces/',
+            {'space_name': 'Sala', 'condition': 'GOOD'},
+            format='json',
+        )
+        
+        # Finalize
+        r_fin = self.client.post(f'/api/v1/inventories/{inv_id}/finalize/')
+        self.assertEqual(r_fin.status_code, status.HTTP_200_OK)
+        self.assertEqual(r_fin.data['status'], Inventory.Status.PENDING_APPROVAL)
+
+    def test_approve_final_inventory_dissociates_and_closes_ticket(self):
+        from pot.models import Ticket
+        self.client.force_authenticate(user=self.admin)
+        
+        # 1. Create closure ticket
+        self.client.force_authenticate(user=self.tenant)
+        r_cancel = self.client.delete(f'/api/v1/tenants/{self.tenant.id}/properties/{self.property.id}/')
+        self.assertEqual(r_cancel.status_code, status.HTTP_200_OK)
+        ticket_id = r_cancel.data['ticket_id']
+        
+        # 2. Create final inventory
+        self.client.force_authenticate(user=self.admin)
+        r_create = self.client.post(
+            '/api/v1/inventories/',
+            {
+                'property_id': self.property.id,
+                'tenant_id': self.tenant.id,
+                'delivery_date': '2026-06-01',
+                'inventory_type': 'FINAL',
+            },
+            format='json',
+        )
+        inv_id = r_create.data['id']
+        
+        # Add space
+        self.client.post(
+            f'/api/v1/inventories/{inv_id}/spaces/',
+            {'space_name': 'Sala', 'condition': 'GOOD'},
+            format='json',
+        )
+        
+        # Finalize (sets status to PENDING_APPROVAL)
+        self.client.post(f'/api/v1/inventories/{inv_id}/finalize/')
+        
+        # 3. Non-admin (tenant) tries to approve
+        self.client.force_authenticate(user=self.tenant)
+        r_app_tenant = self.client.post(f'/api/v1/inventories/{inv_id}/approve/')
+        self.assertEqual(r_app_tenant.status_code, status.HTTP_403_FORBIDDEN)
+        
+        # 4. Admin approves
+        self.client.force_authenticate(user=self.admin)
+        r_approve = self.client.post(f'/api/v1/inventories/{inv_id}/approve/')
+        self.assertEqual(r_approve.status_code, status.HTTP_200_OK)
+        self.assertEqual(r_approve.data['status'], Inventory.Status.ACCEPTED)
+        
+        # Verify property is AVAILABLE, tenant is dissociated
+        self.property.refresh_from_db()
+        self.assertEqual(self.property.status, Property.Status.AVAILABLE)
+        self.assertFalse(UserPropertyAssociation.objects.filter(user=self.tenant, property=self.property, dissociated_at__isnull=True).exists())
+        
+        # Verify ticket is CLOSED
+        ticket = Ticket.objects.get(id=ticket_id)
+        self.assertEqual(ticket.status, Ticket.Status.CLOSED)

@@ -45,11 +45,29 @@ class ChangePasswordSerializer(serializers.Serializer):
 class UserSerializer(serializers.ModelSerializer):
     role = serializers.ChoiceField(choices=User.Role.choices, required=False)
     role_display = serializers.CharField(source='get_role_display', read_only=True)
+    active_properties = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'email', 'first_name', 'last_name', 'password', 'role', 'role_display', 'is_active', 'document_type', 'document_number', 'phone', 'public_code']
+        fields = ['id', 'email', 'first_name', 'last_name', 'password', 'role', 'role_display', 'is_active', 'document_type', 'document_number', 'phone', 'public_code', 'active_properties']
         extra_kwargs = {'password': {'write_only': True, 'required': False, 'allow_blank': True, 'allow_null': True}}
+
+    def get_active_properties(self, obj):
+        from pot.models import UserPropertyAssociation
+        if obj.role != 'TENANT':
+            return []
+        assocs = UserPropertyAssociation.objects.filter(user=obj, dissociated_at__isnull=True).select_related('property')
+        return [
+            {
+                'id': a.property.id,
+                'code': a.property.code,
+                'address': a.property.address,
+                'city': a.property.city,
+                'type': a.property.type,
+                'status': a.property.status,
+            }
+            for a in assocs
+        ]
 
     def validate_first_name(self, value):
         import re

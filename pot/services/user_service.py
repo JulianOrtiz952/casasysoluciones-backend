@@ -174,6 +174,14 @@ def asociar_inmueble_arrendatario(tenant, property_obj, created_by, request=None
     UserPropertyAssociation.objects.create(user=tenant, property=property_obj, created_by=created_by)
     property_obj.status = Property.Status.RENTED
     property_obj.save(update_fields=['status', 'updated_at'])
+
+    # Reassign any pending/draft initial inventories to the new tenant
+    Inventory.objects.filter(
+        property=property_obj,
+        inventory_type=Inventory.Type.INITIAL,
+        status__in=[Inventory.Status.IN_PROGRESS, Inventory.Status.PENDING_SIGNATURE, Inventory.Status.OBSERVATIONS_PENDING]
+    ).update(tenant=tenant)
+
     registrar_evento_propiedad(
         property_obj,
         PropertyHistory.EventType.TENANT_ASSOCIATED,
@@ -218,6 +226,20 @@ def desasociar_inmueble_arrendatario(tenant, property_obj, changed_by):
         details={'property_id': property_obj.pk, 'code': property_obj.code},
         changed_by=changed_by,
     )
+
+    # Deactivate legacy HistorialAlquiler if it exists
+    try:
+        from api.models import HistorialAlquiler
+        HistorialAlquiler.objects.filter(
+            inmueble_id=property_obj.pk,
+            esta_activo=True
+        ).update(
+            esta_activo=False,
+            fecha_fin=timezone.now().date()
+        )
+    except Exception as e:
+        print(f"Error deactivating legacy rental history: {e}")
+
     return tenant
 
 

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from pot.models import CustomUser, Property, PropertyHistory, PropertyImage
+from pot.models import CustomUser, Property, PropertyHistory, PropertyImage, Ticket
 
 
 class ActiveTenantBriefSerializer(serializers.ModelSerializer):
@@ -18,6 +18,10 @@ class PropertyListSerializer(serializers.ModelSerializer):
     type_display = serializers.CharField(source='get_type_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     active_tenant = serializers.SerializerMethodField()
+    cover_image = serializers.ImageField(read_only=True)
+    images = PropertyImageSerializer(many=True, read_only=True)
+    has_active_closure_request = serializers.SerializerMethodField()
+    active_closure_ticket_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Property
@@ -45,6 +49,10 @@ class PropertyListSerializer(serializers.ModelSerializer):
             'admin_value',
             'google_maps_link',
             'active_tenant',
+            'cover_image',
+            'images',
+            'has_active_closure_request',
+            'active_closure_ticket_id',
             'created_at',
             'updated_at',
         ]
@@ -55,10 +63,31 @@ class PropertyListSerializer(serializers.ModelSerializer):
             return None
         return ActiveTenantBriefSerializer(tenant).data
 
+    def get_has_active_closure_request(self, obj):
+        tenant = obj.get_active_tenant()
+        if not tenant:
+            return False
+        return Ticket.objects.filter(
+            property=obj,
+            tenant=tenant,
+            damage_type=Ticket.DamageType.CLOSURE,
+            status__in=[Ticket.Status.OPEN, Ticket.Status.ACCEPTED, Ticket.Status.IN_PROGRESS]
+        ).exists()
+
+    def get_active_closure_ticket_id(self, obj):
+        tenant = obj.get_active_tenant()
+        if not tenant:
+            return None
+        t = Ticket.objects.filter(
+            property=obj,
+            tenant=tenant,
+            damage_type=Ticket.DamageType.CLOSURE,
+            status__in=[Ticket.Status.OPEN, Ticket.Status.ACCEPTED, Ticket.Status.IN_PROGRESS]
+        ).first()
+        return t.id if t else None
+
 
 class PropertyDetailSerializer(PropertyListSerializer):
-    cover_image = serializers.ImageField(read_only=True)
-    images = PropertyImageSerializer(many=True, read_only=True)
     created_by_email = serializers.EmailField(
         source='created_by.email',
         read_only=True,
@@ -68,8 +97,6 @@ class PropertyDetailSerializer(PropertyListSerializer):
 
     class Meta(PropertyListSerializer.Meta):
         fields = PropertyListSerializer.Meta.fields + [
-            'cover_image',
-            'images',
             'observations',
             'description',
             'created_by_email',

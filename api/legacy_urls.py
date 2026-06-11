@@ -13,7 +13,7 @@ router = DefaultRouter()
 router.register(r'inmuebles', InmuebleViewSet)
 router.register(r'inquilinos', InquilinoViewSet)
 router.register(r'historial_alquiler', HistorialAlquilerViewSet)
-router.register(r'usuarios', UserViewSet)
+router.register(r'usuarios', UserViewSet, basename='usuarios')
 
 urlpatterns = [
     path('', include(router.urls)),

@@ -1,6 +1,6 @@
 from django.db import models
 from rest_framework import status, viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -33,12 +33,22 @@ def _handle_service_error(exc):
 
 
 class PropertyViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsStaffOperative]
     pagination_class = StandardResultsSetPagination
     http_method_names = ['get', 'post', 'patch', 'head', 'options']
 
+    def get_permissions(self):
+        if self.action == 'mine':
+            return [IsAuthenticated()]
+        if self.action in ('list', 'retrieve'):
+            if not self.request.user or not self.request.user.is_authenticated:
+                return [AllowAny()]
+        return [IsStaffOperative()]
+
     def get_queryset(self):
-        qs = Property.objects.all().order_by('-created_at')
+        if not self.request.user or not self.request.user.is_authenticated:
+            qs = Property.objects.filter(status=Property.Status.AVAILABLE).order_by('-created_at')
+        else:
+            qs = Property.objects.all().order_by('-created_at')
             
         prop_status = self.request.query_params.get('status')
         if prop_status:

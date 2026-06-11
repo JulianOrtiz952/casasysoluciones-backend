@@ -170,13 +170,13 @@ class TicketCreationAPITests(TestCase):
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_cp_rf_17_attachments_limit_and_format_rf17(self):
-        """CP-RF-17: máx. 5 adjuntos JPG/PNG ≤5 MB; rechaza formatos inválidos."""
+        """CP-RF-17: máx. 10 adjuntos JPG/PNG ≤5 MB; rechaza formatos inválidos."""
         self.client.force_authenticate(user=self.tenant)
         create_r = self.client.post('/api/v1/tickets/mine/', _ticket_payload(), format='json')
         ticket_id = create_r.data['id']
         mail.outbox.clear()
 
-        for i in range(5):
+        for i in range(10):
             r = self.client.post(
                 f'/api/v1/tickets/mine/{ticket_id}/attachments/',
                 {'image': _make_test_image(f'p{i}.jpg')},
@@ -186,12 +186,12 @@ class TicketCreationAPITests(TestCase):
 
         r6 = self.client.post(
             f'/api/v1/tickets/mine/{ticket_id}/attachments/',
-            {'image': _make_test_image('p6.jpg')},
+            {'image': _make_test_image('p11.jpg')},
             format='multipart',
         )
         self.assertEqual(r6.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(r6.json()['error']['code'], 'max_attachments')
-        self.assertEqual(TicketAttachment.objects.filter(ticket_id=ticket_id).count(), 5)
+        self.assertEqual(TicketAttachment.objects.filter(ticket_id=ticket_id).count(), 10)
 
         bad = SimpleUploadedFile('doc.pdf', b'%PDF', content_type='application/pdf')
         r_bad = self.client.post(
@@ -267,3 +267,45 @@ class TicketCreationAPITests(TestCase):
                 event_type=PropertyHistory.EventType.STATUS_CHANGE,
             ).exists()
         )
+
+    def test_admin_can_reject_client_ticket_with_reason(self):
+        ticket = Ticket.objects.create(
+            property=self.property1,
+            tenant=self.tenant,
+            title='Client Ticket',
+            status=Ticket.Status.OPEN,
+        )
+        self.client.force_authenticate(user=self.admin)
+        
+        r_fail = self.client.post(f'/api/v1/tickets/{ticket.id}/reject/', {'reason': ''}, format='json')
+        self.assertEqual(r_fail.status_code, status.HTTP_400_BAD_REQUEST)
+        
+        r_success = self.client.post(f'/api/v1/tickets/{ticket.id}/reject/', {'reason': 'No es responsabilidad del arrendador.'}, format='json')
+        self.assertEqual(r_success.status_code, status.HTTP_200_OK)
+        
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, Ticket.Status.REJECTED)
+        self.assertEqual(ticket.rejection_reason, 'No es responsabilidad del arrendador.')
+
+    def test_admin_update_status_to_rejected_requires_reason(self):
+        ticket = Ticket.objects.create(
+            property=self.property1,
+            tenant=self.tenant,
+            title='Client Ticket 2',
+            status=Ticket.Status.OPEN,
+        )
+        self.client.force_authenticate(user=self.admin)
+        
+        r_fail = self.client.post(f'/api/v1/tickets/{ticket.id}/update-status/', {'status': 'REJECTED'}, format='json')
+        self.assertEqual(r_fail.status_code, status.HTTP_400_BAD_REQUEST)
+        
+        r_success = self.client.post(f'/api/v1/tickets/{ticket.id}/update-status/', {
+            'status': 'REJECTED',
+            'rejection_reason': 'Duplicado.'
+        }, format='json')
+        self.assertEqual(r_success.status_code, status.HTTP_200_OK)
+        
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, Ticket.Status.REJECTED)
+        self.assertEqual(ticket.rejection_reason, 'Duplicado.')
+
