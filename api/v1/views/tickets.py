@@ -220,6 +220,30 @@ class TenantTicketViewSet(
             _handle_service_error(exc)
         return Response(TicketDetailSerializer(ticket).data)
 
+    @action(detail=True, methods=['post'], url_path='admin-approve')
+    def admin_approve(self, request, pk=None):
+        """Allows an admin/assistant to approve a completed repair ticket."""
+        try:
+            ticket = ticket_service.aprobar_reparacion_admin(request.user, pk)
+        except TicketServiceError as exc:
+            _handle_service_error(exc)
+        return Response(TicketDetailSerializer(ticket).data)
+
+    @action(detail=True, methods=['post'], url_path='admin-reject')
+    def admin_reject(self, request, pk=None):
+        """Allows an admin/assistant to reject a completed repair ticket with a reason."""
+        serializer = TicketReportProblemSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            ticket = ticket_service.rechazar_reparacion_admin(
+                request.user,
+                pk,
+                serializer.validated_data['reason'],
+            )
+        except TicketServiceError as exc:
+            _handle_service_error(exc)
+        return Response(TicketDetailSerializer(ticket).data)
+
 
     @action(detail=True, methods=['post'], url_path='report-problem')
     def report_problem(self, request, pk=None):

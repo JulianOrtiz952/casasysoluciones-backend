@@ -46,9 +46,13 @@ class PropertyViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         if not self.request.user or not self.request.user.is_authenticated:
-            qs = Property.objects.filter(status=Property.Status.AVAILABLE).order_by('-created_at')
+            qs = Property.objects.filter(status=Property.Status.AVAILABLE, is_active=True).order_by('-created_at')
         else:
             qs = Property.objects.all().order_by('-created_at')
+            if self.action == 'list':
+                include_inactive = self.request.query_params.get('include_inactive', '').lower() in ('1', 'true', 'yes')
+                if not include_inactive:
+                    qs = qs.filter(is_active=True)
             
         prop_status = self.request.query_params.get('status')
         if prop_status:
@@ -92,6 +96,16 @@ class PropertyViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         if not serializer.validated_data:
             return Response(PropertyDetailSerializer(prop).data)
+            
+        # Check validation: cannot deactivate if there is an active tenant
+        if 'is_active' in serializer.validated_data and not serializer.validated_data['is_active']:
+            if prop.get_active_tenant() is not None:
+                raise APIError(
+                    'cannot_deactivate_rented_property',
+                    'No se puede desactivar un inmueble con un arrendatario activo.',
+                    status_code=status.HTTP_400_BAD_REQUEST
+                )
+                
         try:
             property_service.actualizar_propiedad(prop, request.user, **serializer.validated_data)
         except PropertyServiceError as exc:

@@ -1,5 +1,6 @@
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
+from django.core.validators import MinValueValidator
 from django.utils import timezone
 import re
 import html as html_lib
@@ -205,6 +206,7 @@ class Property(models.Model):
     type = models.CharField(max_length=20, choices=Type.choices)
     owner_name = models.CharField(max_length=150)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.AVAILABLE)
+    is_active = models.BooleanField(default=True)
     
     # New fields migrated from Inmueble
     price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -362,6 +364,8 @@ class Ticket(models.Model):
         OPEN = 'OPEN', 'Abierto'
         ACCEPTED = 'ACCEPTED', 'Aceptado'
         IN_PROGRESS = 'IN_PROGRESS', 'En proceso'
+        PENDING_ADMIN = 'PENDING_ADMIN', 'Pendiente de Admin'
+        PENDING_TENANT = 'PENDING_TENANT', 'Pendiente de Inquilino'
         REJECTED = 'REJECTED', 'Rechazado'
         CLOSED = 'CLOSED', 'Cerrado'
 
@@ -518,6 +522,13 @@ class Inventory(models.Model):
         related_name='inventories_as_tenant',
         limit_choices_to={'role': CustomUser.Role.TENANT},
     )
+    property_association = models.ForeignKey(
+        'UserPropertyAssociation',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='inventories',
+    )
     inventory_type = models.CharField(max_length=10, choices=Type.choices)
     status = models.CharField(max_length=30, choices=Status.choices, default=Status.IN_PROGRESS)
     delivery_date = models.DateField()
@@ -543,7 +554,7 @@ class Inventory(models.Model):
 
     class Meta:
         ordering = ['-created_at']
-        unique_together = ('property', 'tenant', 'inventory_type')
+        unique_together = ('property_association', 'inventory_type')
 
     def __str__(self):
         return f'{self.property.code} - {self.get_inventory_type_display()} - {self.tenant.email}'
@@ -562,6 +573,7 @@ class InventorySpace(models.Model):
     space_name = models.CharField(max_length=100)
     condition = models.CharField(max_length=20, choices=Condition.choices)
     observations = models.TextField(blank=True, null=True)
+    quantity = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     order = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

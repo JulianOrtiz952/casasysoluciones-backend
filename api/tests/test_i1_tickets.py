@@ -218,17 +218,24 @@ class TicketCreationAPITests(TestCase):
         r = self.client.post('/api/v1/tickets/mine/', _ticket_payload(), format='json')
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_tenant_can_confirm_resolved_ticket(self):
-        # Create an in_progress ticket
+    def test_tenant_cannot_confirm_resolved_ticket(self):
+        # Create a pending admin ticket
         ticket = Ticket.objects.create(
             property=self.property1,
             tenant=self.tenant,
             title='Test Ticket',
-            status=Ticket.Status.IN_PROGRESS,
+            status=Ticket.Status.PENDING_ADMIN,
         )
+        # 1. Tenant tries to confirm -> should fail with 403 Forbidden
         self.client.force_authenticate(user=self.tenant)
         r = self.client.post(f'/api/v1/tickets/mine/{ticket.id}/confirm/')
-        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(r.json()['error']['code'], 'not_authorized')
+
+        # 2. Admin approves -> should succeed and close
+        self.client.force_authenticate(user=self.admin)
+        r_approve = self.client.post(f'/api/v1/tickets/{ticket.id}/admin-approve/')
+        self.assertEqual(r_approve.status_code, status.HTTP_200_OK)
         
         ticket.refresh_from_db()
         self.assertEqual(ticket.status, Ticket.Status.CLOSED)

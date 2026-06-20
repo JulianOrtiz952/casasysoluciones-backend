@@ -256,10 +256,11 @@ def generar_pdf_inventario(inventory_obj):
     data_tabla = [['#', 'Espacio', 'Estado', 'Observaciones']]
     spaces = list(inventory_obj.spaces.prefetch_related('photos').order_by('order', 'space_name'))
     for i, space in enumerate(spaces, 1):
+        name_str = f"{space.space_name} (x{space.quantity})" if getattr(space, 'quantity', 1) > 1 else space.space_name
         data_tabla.append(
             [
                 str(i),
-                escape(space.space_name),
+                escape(name_str),
                 space.get_condition_display(),
                 escape((space.observations or '—')[:200] + ('…' if space.observations and len(space.observations) > 200 else '')),
             ]
@@ -302,7 +303,8 @@ def generar_pdf_inventario(inventory_obj):
 
     for space in spaces:
         photos = list(space.photos.all())
-        sub = f'<b>{escape(space.space_name)}</b> — {space.get_condition_display()}'
+        qty_str = f" (x{space.quantity})" if getattr(space, 'quantity', 1) > 1 else ""
+        sub = f'<b>{escape(space.space_name)}</b>{qty_str} — {space.get_condition_display()}'
         if space.observations:
             sub += f'<br/><i>Obs.:</i> {escape(space.observations)}'
         elements.append(Spacer(1, 0.08 * inch))
@@ -442,7 +444,12 @@ def usuario_puede_acceder_inventario(user, inventory):
         return True
     if user.role == CustomUser.Role.TECHNICIAN:
         return True
-    return user.role == CustomUser.Role.TENANT and inventory.tenant_id == user.pk
+    return (
+        user.role == CustomUser.Role.TENANT
+        and inventory.tenant_id == user.pk
+        and inventory.property_association is not None
+        and inventory.property_association.dissociated_at is None
+    )
 
 
 def _validar_editable(inventory):
@@ -458,21 +465,23 @@ def crear_inventario_inicial(created_by, *, property_id, tenant_id, delivery_dat
     if not tenant:
         raise InventoryServiceError('tenant_not_found', 'Arrendatario no encontrado.')
 
+    active_assoc = UserPropertyAssociation.objects.filter(
+        property=prop,
+        dissociated_at__isnull=True,
+    ).first()
+
     if inventory_type == Inventory.Type.INITIAL:
-        if Inventory.objects.filter(
-            property=prop,
-            inventory_type=Inventory.Type.INITIAL,
-            status=Inventory.Status.ACCEPTED,
-        ).exists():
-            raise InventoryServiceError(
-                'initial_already_accepted',
-                'Ya existe un inventario inicial aceptado para este inmueble.',
-            )
+        if active_assoc and active_assoc.user == tenant:
+            if Inventory.objects.filter(
+                property_association=active_assoc,
+                inventory_type=Inventory.Type.INITIAL,
+            ).exists():
+                raise InventoryServiceError(
+                    'initial_already_exists',
+                    'Ya existe un inventario inicial para este inmueble y este arrendatario en la ocupación actual.',
+                )
+
         # Si es inicial, entonces debería asociar al inquilino que se seleccione
-        active_assoc = UserPropertyAssociation.objects.filter(
-            property=prop,
-            dissociated_at__isnull=True,
-        ).first()
         if active_assoc:
             if active_assoc.user != tenant:
                 # Desasociar el inquilino anterior
@@ -487,19 +496,20 @@ def crear_inventario_inicial(created_by, *, property_id, tenant_id, delivery_dat
                     related_user=active_assoc.user,
                 )
                 # Asociar al nuevo inquilino
-                UserPropertyAssociation.objects.create(
+                active_assoc = UserPropertyAssociation.objects.create(
                     user=tenant,
                     property=prop,
                     created_by=created_by,
                 )
         else:
-            UserPropertyAssociation.objects.create(
+            active_assoc = UserPropertyAssociation.objects.create(
                 user=tenant,
                 property=prop,
                 created_by=created_by,
             )
         prop.status = Property.Status.RENTED
         prop.save(update_fields=['status', 'updated_at'])
+        assoc_to_link = active_assoc
     elif inventory_type == Inventory.Type.FINAL:
         from pot.services import user_service
         try:
@@ -507,10 +517,26 @@ def crear_inventario_inicial(created_by, *, property_id, tenant_id, delivery_dat
         except Exception:
             pass
 
+        assoc_to_link = UserPropertyAssociation.objects.filter(
+            property=prop,
+            user=tenant
+        ).order_by('-associated_at').first()
+
+        if assoc_to_link:
+            if Inventory.objects.filter(
+                property_association=assoc_to_link,
+                inventory_type=Inventory.Type.FINAL,
+            ).exists():
+                raise InventoryServiceError(
+                    'final_already_exists',
+                    'Ya existe un inventario final para este inmueble y este arrendatario en la ocupación actual.',
+                )
+
     try:
         inv = Inventory.objects.create(
             property=prop,
             tenant=tenant,
+            property_association=assoc_to_link,
             inventory_type=inventory_type,
             status=Inventory.Status.IN_PROGRESS,
             delivery_date=delivery_date,
@@ -548,18 +574,21 @@ def actualizar_paso_1(inventory, *, delivery_date=None, observations=None):
     return inventory
 
 
-def agregar_espacio(inventory, *, space_name, condition, observations=None):
+def agregar_espacio(inventory, *, space_name, condition, observations=None, quantity=1):
     _validar_editable(inventory)
     if condition not in dict(InventorySpace.Condition.choices):
         raise InventoryServiceError('invalid_condition', 'Condición de espacio no válida.')
     space_name = (space_name or '').strip()
     if not space_name:
         raise InventoryServiceError('space_name_required', 'El nombre del espacio es obligatorio.')
+    if quantity < 1:
+        raise InventoryServiceError('invalid_quantity', 'La cantidad debe ser un número entero positivo.')
     return InventorySpace.objects.create(
         inventory=inventory,
         space_name=space_name,
         condition=condition,
         observations=observations or '',
+        quantity=quantity,
         order=inventory.spaces.count(),
     )
 
@@ -574,16 +603,20 @@ def reemplazar_espacios(inventory, spaces_data):
     for idx, item in enumerate(spaces_data):
         space_name = (item.get('space_name') or '').strip()
         condition = item.get('condition')
+        quantity = item.get('quantity', 1)
         if not space_name:
             raise InventoryServiceError('space_name_required', f'Espacio #{idx + 1}: nombre obligatorio.')
         if condition not in dict(InventorySpace.Condition.choices):
             raise InventoryServiceError('invalid_condition', f'Espacio "{space_name}": condición no válida.')
+        if quantity < 1:
+            raise InventoryServiceError('invalid_quantity', f'Espacio "{space_name}": cantidad debe ser un número entero positivo.')
         created.append(
             InventorySpace.objects.create(
                 inventory=inventory,
                 space_name=space_name,
                 condition=condition,
                 observations=item.get('observations') or '',
+                quantity=quantity,
                 order=item.get('order', idx),
             )
         )

@@ -32,6 +32,8 @@ def _handle_service_error(exc):
         'tenant_not_found': status.HTTP_404_NOT_FOUND,
         'not_owner': status.HTTP_403_FORBIDDEN,
         'initial_already_accepted': status.HTTP_409_CONFLICT,
+        'initial_already_exists': status.HTTP_409_CONFLICT,
+        'final_already_exists': status.HTTP_409_CONFLICT,
         'tenant_not_associated': status.HTTP_400_BAD_REQUEST,
         'duplicate_inventory': status.HTTP_409_CONFLICT,
         'not_editable': status.HTTP_400_BAD_REQUEST,
@@ -78,7 +80,10 @@ class InventoryViewSet(
                 qs = qs.filter(tenant_id=tenant_id)
             return qs.order_by('-created_at')
         if self.request.user.role == CustomUser.Role.TENANT:
-            return qs.filter(tenant=self.request.user).order_by('-created_at')
+            return qs.filter(
+                tenant=self.request.user,
+                property_association__dissociated_at__isnull=True,
+            ).order_by('-created_at')
         return qs.none()
 
     def get_serializer_class(self):

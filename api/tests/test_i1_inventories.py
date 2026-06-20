@@ -125,6 +125,45 @@ class InventoryInitialAPITests(TestCase):
             ).exists()
         )
 
+    def test_duplicate_initial_inventory_fails(self):
+        # Create first initial inventory
+        r1 = self._create_inventory()
+        self.assertEqual(r1.status_code, status.HTTP_201_CREATED)
+
+        # Create second initial inventory for same active association
+        r2 = self._create_inventory()
+        self.assertEqual(r2.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(r2.json()['error']['code'], 'initial_already_exists')
+
+    def test_duplicate_final_inventory_fails(self):
+        # Create first final inventory
+        self.client.force_authenticate(user=self.admin)
+        r1 = self.client.post(
+            '/api/v1/inventories/',
+            {
+                'property_id': self.property.id,
+                'tenant_id': self.tenant.id,
+                'delivery_date': '2026-06-01',
+                'inventory_type': 'FINAL',
+            },
+            format='json',
+        )
+        self.assertEqual(r1.status_code, status.HTTP_201_CREATED)
+
+        # Create second final inventory for same association
+        r2 = self.client.post(
+            '/api/v1/inventories/',
+            {
+                'property_id': self.property.id,
+                'tenant_id': self.tenant.id,
+                'delivery_date': '2026-06-02',
+                'inventory_type': 'FINAL',
+            },
+            format='json',
+        )
+        self.assertEqual(r2.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(r2.json()['error']['code'], 'final_already_exists')
+
     def test_cp_rf_09_space_templates_and_dynamic_spaces_rf09(self):
         """CP-RF-09: plantillas por tipo de inmueble y espacios dinámicos (crear/eliminar)."""
         self.client.force_authenticate(user=self.assistant)
@@ -205,14 +244,19 @@ class InventoryInitialAPITests(TestCase):
             f'/api/v1/inventories/{inv_id}/step/2/spaces/',
             {
                 'spaces': [
-                    {'space_name': 'Cocina', 'condition': 'REGULAR', 'order': 0},
-                    {'space_name': 'Baño', 'condition': 'GOOD', 'order': 1},
+                    {'space_name': 'Cocina', 'condition': 'REGULAR', 'order': 0, 'quantity': 2},
+                    {'space_name': 'Baño', 'condition': 'GOOD', 'order': 1, 'quantity': 1},
                 ],
             },
             format='json',
         )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(len(r.data['spaces']), 2)
+        spaces_data = sorted(r.data['spaces'], key=lambda x: x['order'])
+        self.assertEqual(spaces_data[0]['space_name'], 'Cocina')
+        self.assertEqual(spaces_data[0]['quantity'], 2)
+        self.assertEqual(spaces_data[1]['space_name'], 'Baño')
+        self.assertEqual(spaces_data[1]['quantity'], 1)
 
     def test_finalize_and_mine_rf11_flow(self):
         create_r = self._create_inventory()

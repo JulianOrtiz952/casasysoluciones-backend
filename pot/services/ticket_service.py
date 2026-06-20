@@ -216,12 +216,11 @@ def confirmar_ticket_reparacion(user, ticket_id):
                 'Solo un administrador o asistente puede aprobar un ticket de Cierre de Contrato.',
             )
     else:
-        # Tickets normales: solo el inquilino puede confirmar
-        if user.role != CustomUser.Role.TENANT or user.pk != ticket.tenant_id:
-            raise TicketServiceError(
-                'not_authorized',
-                'Solo el inquilino asociado puede confirmar este ticket.',
-            )
+        # La aprobación de tickets de reparación depende únicamente del administrador
+        raise TicketServiceError(
+            'not_authorized',
+            'La aprobación de tickets de reparación depende únicamente del administrador.',
+        )
 
     old_status = ticket.status
     ticket.status = Ticket.Status.CLOSED
@@ -339,8 +338,7 @@ def agregar_adjunto_tecnico(user, ticket_id, image_file):
         created_by=user,
     )
     return attachment
-
-
+    
 @transaction.atomic
 def completar_ticket_tecnico(user, ticket_id):
     """Mark a ticket as completed by the assigned technician.
@@ -365,14 +363,31 @@ def completar_ticket_tecnico(user, ticket_id):
             'Debe adjuntar al menos una evidencia de la reparación antes de completar el ticket.',
         )
 
+    # Validar si hubo rechazo previo del administrador
+    last_rejection = ticket.history.filter(
+        action=TicketHistory.Action.STATUS_CHANGE,
+        new_value=Ticket.Status.IN_PROGRESS,
+        description__icontains='reparación rechazada por administrador'
+    ).first()
+    if last_rejection:
+        new_attachments_count = ticket.attachments.filter(
+            uploaded_by__in=ticket.assigned_technicians.all(),
+            uploaded_at__gt=last_rejection.created_at
+        ).count()
+        if new_attachments_count == 0:
+            raise TicketServiceError(
+                'no_new_evidence',
+                'Debe adjuntar al menos una nueva evidencia de la reparación después del rechazo del administrador.'
+            )
+
     old_status = ticket.status
-    ticket.status = Ticket.Status.IN_PROGRESS
+    ticket.status = Ticket.Status.PENDING_ADMIN
     ticket.save()
 
     registrar_evento_propiedad(
         property_obj=ticket.property,
         event_type=PropertyHistory.EventType.STATUS_CHANGE,
-        description=f'Técnico {user.email} completó la reparación del ticket {ticket.public_code}',
+        description=f'Técnico {user.email} completó la reparación del ticket {ticket.public_code}. Estado: Pendiente de Aprobación Admin',
         created_by=user,
         related_user=ticket.tenant,
         details={
@@ -385,7 +400,7 @@ def completar_ticket_tecnico(user, ticket_id):
     pending_msg = (
         f'Inventario final completado por técnico {user.email}. Pendiente aprobación del administrador.'
         if is_closure
-        else f'Reparación completada por técnico {user.email}. Pendiente confirmación del inquilino.'
+        else f'Reparación completada por técnico {user.email}. Pendiente visto bueno del administrador.'
     )
     registrar_historial_ticket(
         ticket,
@@ -393,11 +408,113 @@ def completar_ticket_tecnico(user, ticket_id):
         pending_msg,
         created_by=user,
         old_value=old_status,
-        new_value=Ticket.Status.IN_PROGRESS,
+        new_value=Ticket.Status.PENDING_ADMIN,
     )
     return ticket
 
 
+@transaction.atomic
+def aprobar_reparacion_admin(user, ticket_id):
+    """Allow an admin or assistant to approve the completed ticket."""
+    if not user.is_staff_operative():
+        raise TicketServiceError(
+            'not_authorized',
+            'Solo administradores o asistentes pueden aprobar la reparación.',
+        )
+
+    ticket = obtener_ticket_por_usuario(user, ticket_id)
+    if ticket.status != Ticket.Status.PENDING_ADMIN:
+        raise TicketServiceError(
+            'invalid_status',
+            'El ticket debe estar en estado Pendiente de Admin para ser aprobado.',
+        )
+
+    old_status = ticket.status
+    
+    # Si es ticket de cierre (CLOSURE), la aprobación admin lo cierra directamente
+    if ticket.damage_type == Ticket.DamageType.CLOSURE:
+        return confirmar_ticket_reparacion(user, ticket_id)
+
+    ticket.status = Ticket.Status.CLOSED
+    ticket.tenant_confirmed_at = timezone.now()
+    ticket.save()
+
+    registrar_evento_propiedad(
+        property_obj=ticket.property,
+        event_type=PropertyHistory.EventType.TICKET_CLOSED,
+        description=f'Administrador {user.email} aprobó la reparación y cerró el ticket {ticket.public_code}.',
+        created_by=user,
+        related_user=ticket.tenant,
+        details={
+            'ticket_id': ticket.id,
+            'public_code': ticket.public_code,
+            'admin': user.email,
+            'confirmed_at': ticket.tenant_confirmed_at.isoformat(),
+        },
+    )
+
+    registrar_historial_ticket(
+        ticket,
+        TicketHistory.Action.CONFIRMED,
+        f'Reparación aprobada y ticket cerrado por administrador {user.email}.',
+        created_by=user,
+        old_value=old_status,
+        new_value=Ticket.Status.CLOSED,
+    )
+    return ticket
+
+
+@transaction.atomic
+def rechazar_reparacion_admin(user, ticket_id, reason):
+    """Allow an admin or assistant to reject the completed ticket work, sending it back to IN_PROGRESS."""
+    if not user.is_staff_operative():
+        raise TicketServiceError(
+            'not_authorized',
+            'Solo administradores o asistentes pueden rechazar la reparación.',
+        )
+
+    ticket = obtener_ticket_por_usuario(user, ticket_id)
+    if ticket.status != Ticket.Status.PENDING_ADMIN:
+        raise TicketServiceError(
+            'invalid_status',
+            'El ticket debe estar en estado Pendiente de Admin para ser rechazado.',
+        )
+
+    cleaned_reason = (reason or '').strip()
+    if not cleaned_reason:
+        raise TicketServiceError(
+            'reason_required',
+            'La descripción del rechazo es obligatoria.',
+        )
+
+    old_status = ticket.status
+    ticket.status = Ticket.Status.IN_PROGRESS
+    ticket.rejection_reason = cleaned_reason
+    ticket.save()
+
+    registrar_evento_propiedad(
+        property_obj=ticket.property,
+        event_type=PropertyHistory.EventType.STATUS_CHANGE,
+        description=f'Administrador {user.email} rechazó la reparación del ticket {ticket.public_code}. Retorna a En Proceso. Motivo: {cleaned_reason}',
+        created_by=user,
+        related_user=ticket.tenant,
+        details={
+            'ticket_id': ticket.id,
+            'public_code': ticket.public_code,
+            'rejection_reason': cleaned_reason,
+            'admin': user.email,
+        },
+    )
+
+    registrar_historial_ticket(
+        ticket,
+        TicketHistory.Action.STATUS_CHANGE,
+        f'Reparación rechazada por administrador {user.email}. Motivo: {cleaned_reason}',
+        created_by=user,
+        old_value=old_status,
+        new_value=Ticket.Status.IN_PROGRESS,
+    )
+    return ticket
 @transaction.atomic
 def rechazar_ticket_por_admin(user, ticket_id, reason):
     """Allow an admin or assistant to reject a ticket with a mandatory reason."""

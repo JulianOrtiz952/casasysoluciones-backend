@@ -30,6 +30,7 @@ class InventorySpaceSerializer(serializers.ModelSerializer):
             'condition',
             'condition_display',
             'observations',
+            'quantity',
             'order',
             'photos',
             'created_at',
@@ -124,6 +125,12 @@ class InventorySpaceCreateSerializer(serializers.Serializer):
     space_name = serializers.CharField(max_length=100)
     condition = serializers.ChoiceField(choices=InventorySpace.Condition.choices)
     observations = serializers.CharField(required=False, allow_blank=True, default='')
+    quantity = serializers.IntegerField(required=False, default=1)
+
+    def validate_quantity(self, value):
+        if value < 1:
+            raise serializers.ValidationError('La cantidad debe ser un número entero positivo.')
+        return value
 
 
 class InventorySpaceBulkItemSerializer(serializers.Serializer):
@@ -131,6 +138,12 @@ class InventorySpaceBulkItemSerializer(serializers.Serializer):
     condition = serializers.ChoiceField(choices=InventorySpace.Condition.choices)
     observations = serializers.CharField(required=False, allow_blank=True, default='')
     order = serializers.IntegerField(required=False, default=0)
+    quantity = serializers.IntegerField(required=False, default=1)
+
+    def validate_quantity(self, value):
+        if value < 1:
+            raise serializers.ValidationError('La cantidad debe ser un número entero positivo.')
+        return value
 
 
 class InventorySpaceBulkSerializer(serializers.Serializer):

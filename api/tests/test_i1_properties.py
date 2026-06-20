@@ -215,3 +215,124 @@ class PropertyManagementAPITests(TestCase):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIsNotNone(r.data['active_tenant'])
         self.assertEqual(r.data['active_tenant']['email'], 'active-tenant@test.com')
+
+    def test_deactivate_property_without_tenant(self):
+        prop = Property.objects.create(
+            code='PRO-00600',
+            address='Calle Desactivada 1',
+            type=Property.Type.HOUSE,
+            owner_name='Dueño',
+            status=Property.Status.AVAILABLE,
+            is_active=True,
+        )
+        self.client.force_authenticate(user=self.admin)
+        r = self.client.patch(
+            f'/api/v1/properties/{prop.id}/',
+            {'is_active': False},
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        prop.refresh_from_db()
+        self.assertFalse(prop.is_active)
+
+    def test_deactivate_property_with_active_tenant_fails(self):
+        prop = Property.objects.create(
+            code='PRO-00601',
+            address='Calle Desactivada Rented',
+            type=Property.Type.HOUSE,
+            owner_name='Dueño',
+            status=Property.Status.RENTED,
+            is_active=True,
+        )
+        tenant = CustomUser.objects.create_user(
+            email='tenant-deact@test.com',
+            password='x',
+            role=CustomUser.Role.TENANT,
+        )
+        UserPropertyAssociation.objects.create(user=tenant, property=prop, created_by=self.admin)
+
+        self.client.force_authenticate(user=self.admin)
+        r = self.client.patch(
+            f'/api/v1/properties/{prop.id}/',
+            {'is_active': False},
+            format='json',
+        )
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(r.json()['error']['code'], 'cannot_deactivate_rented_property')
+        prop.refresh_from_db()
+        self.assertTrue(prop.is_active)
+
+    def test_property_list_excludes_inactive_by_default(self):
+        Property.objects.create(
+            code='PRO-00602',
+            address='Calle Activa',
+            type=Property.Type.HOUSE,
+            owner_name='Dueño',
+            status=Property.Status.AVAILABLE,
+            is_active=True,
+        )
+        Property.objects.create(
+            code='PRO-00603',
+            address='Calle Inactiva',
+            type=Property.Type.HOUSE,
+            owner_name='Dueño',
+            status=Property.Status.AVAILABLE,
+            is_active=False,
+        )
+
+        self.client.force_authenticate(user=self.admin)
+        r = self.client.get('/api/v1/properties/')
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        codes = [p['code'] for p in r.data['results']]
+        self.assertIn('PRO-00602', codes)
+        self.assertNotIn('PRO-00603', codes)
+
+    def test_property_list_includes_inactive_if_param_passed(self):
+        Property.objects.create(
+            code='PRO-00604',
+            address='Calle Activa 2',
+            type=Property.Type.HOUSE,
+            owner_name='Dueño',
+            status=Property.Status.AVAILABLE,
+            is_active=True,
+        )
+        Property.objects.create(
+            code='PRO-00605',
+            address='Calle Inactiva 2',
+            type=Property.Type.HOUSE,
+            owner_name='Dueño',
+            status=Property.Status.AVAILABLE,
+            is_active=False,
+        )
+
+        self.client.force_authenticate(user=self.admin)
+        r = self.client.get('/api/v1/properties/', {'include_inactive': 'true'})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        codes = [p['code'] for p in r.data['results']]
+        self.assertIn('PRO-00604', codes)
+        self.assertIn('PRO-00605', codes)
+
+    def test_anonymous_user_never_sees_inactive_properties(self):
+        Property.objects.create(
+            code='PRO-00606',
+            address='Calle Activa Anon',
+            type=Property.Type.HOUSE,
+            owner_name='Dueño',
+            status=Property.Status.AVAILABLE,
+            is_active=True,
+        )
+        Property.objects.create(
+            code='PRO-00607',
+            address='Calle Inactiva Anon',
+            type=Property.Type.HOUSE,
+            owner_name='Dueño',
+            status=Property.Status.AVAILABLE,
+            is_active=False,
+        )
+
+        r = self.client.get('/api/v1/properties/', {'include_inactive': 'true'})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        results = r.data.get('results') or r.data
+        codes = [p['code'] for p in results]
+        self.assertIn('PRO-00606', codes)
+        self.assertNotIn('PRO-00607', codes)

@@ -53,6 +53,7 @@ class PropertyListSerializer(serializers.ModelSerializer):
             'images',
             'has_active_closure_request',
             'active_closure_ticket_id',
+            'is_active',
             'created_at',
             'updated_at',
         ]
@@ -149,6 +150,7 @@ class PropertyUpdateSerializer(serializers.Serializer):
     admin_value = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
     google_maps_link = serializers.CharField(max_length=1000, required=False, allow_blank=True, allow_null=True)
     description = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    is_active = serializers.BooleanField(required=False)
 
     observations = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     cover_image = serializers.ImageField(required=False, allow_null=True)
