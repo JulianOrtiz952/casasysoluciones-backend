@@ -134,6 +134,7 @@ class InventorySpaceCreateSerializer(serializers.Serializer):
 
 
 class InventorySpaceBulkItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False, allow_null=True)
     space_name = serializers.CharField(max_length=100)
     condition = serializers.ChoiceField(choices=InventorySpace.Condition.choices)
     observations = serializers.CharField(required=False, allow_blank=True, default='')

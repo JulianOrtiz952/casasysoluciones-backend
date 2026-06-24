@@ -587,9 +587,6 @@ def agregar_espacio(inventory, *, space_name, condition, observations=None, quan
         inventory=inventory,
         space_name=space_name,
         condition=condition,
-        observations=observations or '',
-        quantity=quantity,
-        order=inventory.spaces.count(),
     )
 
 
@@ -598,20 +595,50 @@ def reemplazar_espacios(inventory, spaces_data):
     _validar_editable(inventory)
     if not isinstance(spaces_data, list):
         raise InventoryServiceError('invalid_spaces', 'Se esperaba una lista de espacios.')
-    inventory.spaces.all().delete()
-    created = []
+    
+    # 1. Map existing spaces by ID for easy lookup
+    existing_spaces = {s.id: s for s in inventory.spaces.all()}
+    
+    # 2. Track IDs of spaces that we should keep/update
+    incoming_ids = set()
+    for item in spaces_data:
+        sp_id = item.get('id')
+        if sp_id and sp_id in existing_spaces:
+            incoming_ids.add(sp_id)
+            
+    # 3. Delete spaces that are NOT in the incoming data
+    for sp_id, space in list(existing_spaces.items()):
+        if sp_id not in incoming_ids:
+            space.delete()
+            
+    # 4. Create or update spaces
+    result = []
     for idx, item in enumerate(spaces_data):
         space_name = (item.get('space_name') or '').strip()
         condition = item.get('condition')
         quantity = item.get('quantity', 1)
+        sp_id = item.get('id')
+        
         if not space_name:
             raise InventoryServiceError('space_name_required', f'Espacio #{idx + 1}: nombre obligatorio.')
         if condition not in dict(InventorySpace.Condition.choices):
             raise InventoryServiceError('invalid_condition', f'Espacio "{space_name}": condición no válida.')
         if quantity < 1:
             raise InventoryServiceError('invalid_quantity', f'Espacio "{space_name}": cantidad debe ser un número entero positivo.')
-        created.append(
-            InventorySpace.objects.create(
+            
+        if sp_id and sp_id in existing_spaces:
+            # Update existing space (preserving photos)
+            space = existing_spaces[sp_id]
+            space.space_name = space_name
+            space.condition = condition
+            space.observations = item.get('observations') or ''
+            space.quantity = quantity
+            space.order = item.get('order', idx)
+            space.save()
+            result.append(space)
+        else:
+            # Create new space
+            space = InventorySpace.objects.create(
                 inventory=inventory,
                 space_name=space_name,
                 condition=condition,
@@ -619,10 +646,9 @@ def reemplazar_espacios(inventory, spaces_data):
                 quantity=quantity,
                 order=item.get('order', idx),
             )
-        )
-    return created
-
-
+            result.append(space)
+            
+    return result
 def eliminar_espacio(space):
     inventory = space.inventory
     _validar_editable(inventory)

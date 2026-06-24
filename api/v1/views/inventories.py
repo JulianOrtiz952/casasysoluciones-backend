@@ -78,11 +78,13 @@ class InventoryViewSet(
             tenant_id = self.request.query_params.get('tenant_id')
             if tenant_id:
                 qs = qs.filter(tenant_id=tenant_id)
+            created_before = self.request.query_params.get('created_before')
+            if created_before:
+                qs = qs.filter(created_at__lte=created_before)
             return qs.order_by('-created_at')
         if self.request.user.role == CustomUser.Role.TENANT:
             return qs.filter(
                 tenant=self.request.user,
-                property_association__dissociated_at__isnull=True,
             ).order_by('-created_at')
         return qs.none()
 

@@ -447,3 +447,124 @@ class InventoryInitialAPITests(TestCase):
         # Verify ticket is CLOSED
         ticket = Ticket.objects.get(id=ticket_id)
         self.assertEqual(ticket.status, Ticket.Status.CLOSED)
+
+    def test_admin_edit_initial_inventory_before_signature_only(self):
+        """Admin can edit INITIAL inventory in PENDING_SIGNATURE and OBSERVATIONS_PENDING, but not after signature (ACCEPTED)."""
+        create_r = self._create_inventory()
+        inv_id = create_r.data['id']
+        self.client.force_authenticate(user=self.admin)
+        
+        # 1. Add space in IN_PROGRESS (allowed)
+        r_space = self.client.post(
+            f'/api/v1/inventories/{inv_id}/spaces/',
+            {'space_name': 'Sala', 'condition': 'GOOD'},
+            format='json',
+        )
+        self.assertEqual(r_space.status_code, status.HTTP_201_CREATED)
+        
+        # Finalize (status becomes PENDING_SIGNATURE)
+        r_fin = self.client.post(f'/api/v1/inventories/{inv_id}/finalize/')
+        self.assertEqual(r_fin.status_code, status.HTTP_200_OK)
+        self.assertEqual(r_fin.data['status'], Inventory.Status.PENDING_SIGNATURE)
+        
+        # 2. Try to add space in PENDING_SIGNATURE (allowed now)
+        r_space_pending = self.client.post(
+            f'/api/v1/inventories/{inv_id}/spaces/',
+            {'space_name': 'Cocina', 'condition': 'GOOD'},
+            format='json',
+        )
+        self.assertEqual(r_space_pending.status_code, status.HTTP_201_CREATED)
+        
+        # 3. Tenant adds observations (status becomes OBSERVATIONS_PENDING)
+        self.client.force_authenticate(user=self.tenant)
+        r_obs = self.client.post(
+            f'/api/v1/inventories/{inv_id}/observations/',
+            {'observation_text': 'Rayón en pared'},
+            format='json',
+        )
+        self.assertEqual(r_obs.status_code, status.HTTP_200_OK)
+        self.assertEqual(r_obs.data['status'], Inventory.Status.OBSERVATIONS_PENDING)
+        
+        # 4. Admin tries to add space in OBSERVATIONS_PENDING (allowed now)
+        self.client.force_authenticate(user=self.admin)
+        r_space_obs = self.client.post(
+            f'/api/v1/inventories/{inv_id}/spaces/',
+            {'space_name': 'Baño', 'condition': 'GOOD'},
+            format='json',
+        )
+        self.assertEqual(r_space_obs.status_code, status.HTTP_201_CREATED)
+        
+        # Resolve observations (status becomes PENDING_SIGNATURE again)
+        r_resolve = self.client.post(f'/api/v1/inventories/{inv_id}/resolve-observations/')
+        self.assertEqual(r_resolve.status_code, status.HTTP_200_OK)
+        self.assertEqual(r_resolve.data['status'], Inventory.Status.PENDING_SIGNATURE)
+        
+        # 5. Tenant signs (status becomes ACCEPTED)
+        self.client.force_authenticate(user=self.tenant)
+        r_sign = self.client.post(f'/api/v1/inventories/{inv_id}/sign/')
+        self.assertEqual(r_sign.status_code, status.HTTP_200_OK)
+        self.assertEqual(r_sign.data['status'], Inventory.Status.ACCEPTED)
+        
+        # 6. Admin tries to edit/add space in ACCEPTED (denied)
+        self.client.force_authenticate(user=self.admin)
+        r_edit_denied = self.client.post(
+            f'/api/v1/inventories/{inv_id}/spaces/',
+            {'space_name': 'Patio', 'condition': 'GOOD'},
+            format='json',
+        )
+        self.assertEqual(r_edit_denied.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(r_edit_denied.json()['error']['code'], 'not_editable')
+
+    def test_reemplazar_espacios_preserves_photos_on_update(self):
+        """reemplazar_espacios updates existing spaces and preserves photos instead of wiping them."""
+        from pot.models import InventorySpacePhoto
+        create_r = self._create_inventory()
+        inv_id = create_r.data['id']
+        self.client.force_authenticate(user=self.admin)
+        
+        # 1. Add space
+        r_space = self.client.post(
+            f'/api/v1/inventories/{inv_id}/spaces/',
+            {'space_name': 'Sala', 'condition': 'GOOD'},
+            format='json',
+        )
+        self.assertEqual(r_space.status_code, status.HTTP_201_CREATED)
+        space_id = r_space.data['created_space_id']
+        
+        # 2. Upload photo to space
+        photo = _make_test_image()
+        r_photo = self.client.post(
+            f'/api/v1/inventories/{inv_id}/spaces/{space_id}/photos/',
+            {'image': photo, 'description': 'Vista de la sala'},
+            format='multipart',
+        )
+        self.assertEqual(r_photo.status_code, status.HTTP_201_CREATED)
+        photo_id = r_photo.data['id']
+        
+        # Verify photo exists
+        self.assertTrue(InventorySpacePhoto.objects.filter(id=photo_id).exists())
+        
+        # 3. Call step 2 spaces (reemplazar_espacios) including the existing space ID
+        r_replace = self.client.put(
+            f'/api/v1/inventories/{inv_id}/step/2/spaces/',
+            {
+                'spaces': [
+                    {
+                        'id': space_id,
+                        'space_name': 'Sala Principal',  # changed name
+                        'condition': 'REGULAR',          # changed condition
+                        'observations': 'Modificado',
+                        'quantity': 1,
+                        'order': 0,
+                    }
+                ]
+            },
+            format='json',
+        )
+        self.assertEqual(r_replace.status_code, status.HTTP_200_OK)
+        
+        # Verify space details were updated but space keeps the same ID
+        self.assertTrue(InventorySpace.objects.filter(id=space_id, space_name='Sala Principal', condition='REGULAR').exists())
+        
+        # Verify photo still exists!
+        self.assertTrue(InventorySpacePhoto.objects.filter(id=photo_id, space_id=space_id).exists())

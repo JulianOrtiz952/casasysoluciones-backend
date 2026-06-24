@@ -560,6 +560,8 @@ class Inventory(models.Model):
         return f'{self.property.code} - {self.get_inventory_type_display()} - {self.tenant.email}'
 
     def is_editable(self):
+        if self.inventory_type == self.Type.INITIAL:
+            return self.status in (self.Status.IN_PROGRESS, self.Status.PENDING_SIGNATURE, self.Status.OBSERVATIONS_PENDING)
         return self.status == self.Status.IN_PROGRESS
 
 
