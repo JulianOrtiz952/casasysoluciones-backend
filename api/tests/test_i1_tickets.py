@@ -316,3 +316,66 @@ class TicketCreationAPITests(TestCase):
         self.assertEqual(ticket.status, Ticket.Status.REJECTED)
         self.assertEqual(ticket.rejection_reason, 'Duplicado.')
 
+    def test_admin_update_status_only_allows_single_technician(self):
+        ticket = Ticket.objects.create(
+            property=self.property1,
+            tenant=self.tenant,
+            title='Client Ticket 3',
+            status=Ticket.Status.OPEN,
+        )
+        tech1 = CustomUser.objects.create_user(
+            email='tech1@test.com',
+            password='TechPass123!',
+            role=CustomUser.Role.TECHNICIAN,
+            password_changed=True,
+        )
+        tech2 = CustomUser.objects.create_user(
+            email='tech2@test.com',
+            password='TechPass123!',
+            role=CustomUser.Role.TECHNICIAN,
+            password_changed=True,
+        )
+        self.client.force_authenticate(user=self.admin)
+        
+        # Should succeed with single technician
+        r_success = self.client.post(f'/api/v1/tickets/{ticket.id}/update-status/', {
+            'status': 'IN_PROGRESS',
+            'assigned_technicians': [tech1.id]
+        }, format='json')
+        self.assertEqual(r_success.status_code, status.HTTP_200_OK)
+        
+        # Should fail with multiple technicians
+        r_fail = self.client.post(f'/api/v1/tickets/{ticket.id}/update-status/', {
+            'status': 'IN_PROGRESS',
+            'assigned_technicians': [tech1.id, tech2.id]
+        }, format='json')
+        self.assertEqual(r_fail.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(r_fail.json()['error'], 'Solo se puede asignar un técnico a la vez.')
+
+    def test_delete_attachment(self):
+        ticket = Ticket.objects.create(
+            property=self.property1,
+            tenant=self.tenant,
+            title='Tech Ticket',
+            status=Ticket.Status.OPEN,
+        )
+        tech = CustomUser.objects.create_user(
+            email='tech-del@test.com',
+            password='TechPass123!',
+            role=CustomUser.Role.TECHNICIAN,
+            password_changed=True,
+        )
+        ticket.assigned_technicians.add(tech)
+
+        att = TicketAttachment.objects.create(
+            ticket=ticket,
+            image=_make_test_image('del.jpg'),
+            uploaded_by=tech,
+            space_name='Garaje 1',
+        )
+
+        self.client.force_authenticate(user=tech)
+        r = self.client.delete(f'/api/v1/tickets/{ticket.id}/delete-attachment/', {'attachment_id': att.id}, format='json')
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertFalse(TicketAttachment.objects.filter(id=att.id).exists())
+

@@ -453,6 +453,7 @@ def ticket_attachment_upload(instance, filename):
 class TicketAttachment(models.Model):
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='attachments')
     image = models.ImageField(upload_to=ticket_attachment_upload, max_length=500)
+    space_name = models.CharField(max_length=200, blank=True, default='')
     uploaded_by = models.ForeignKey(
         CustomUser,
         on_delete=models.SET_NULL,

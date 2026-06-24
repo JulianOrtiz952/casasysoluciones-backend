@@ -347,8 +347,18 @@ class InventoryInitialAPITests(TestCase):
         )
         self.assertEqual(r.status_code, status.HTTP_403_FORBIDDEN)
 
+    def _create_and_sign_initial_inventory(self):
+        self.client.force_authenticate(user=self.admin)
+        r_inv = self._create_inventory()
+        inv_id = r_inv.data['id']
+        self.client.post(f'/api/v1/inventories/{inv_id}/spaces/', {'space_name': 'Sala', 'condition': 'GOOD'}, format='json')
+        self.client.post(f'/api/v1/inventories/{inv_id}/finalize/')
+        self.client.force_authenticate(user=self.tenant)
+        self.client.post(f'/api/v1/inventories/{inv_id}/sign/')
+
     def test_tenant_cancellation_creates_closure_ticket(self):
         from pot.models import Ticket
+        self._create_and_sign_initial_inventory()
         self.client.force_authenticate(user=self.tenant)
         r = self.client.delete(f'/api/v1/tenants/{self.tenant.id}/properties/{self.property.id}/')
         self.assertEqual(r.status_code, status.HTTP_200_OK)
@@ -366,6 +376,12 @@ class InventoryInitialAPITests(TestCase):
         # Calling again should return 409 conflict
         r_dup = self.client.delete(f'/api/v1/tenants/{self.tenant.id}/properties/{self.property.id}/')
         self.assertEqual(r_dup.status_code, status.HTTP_409_CONFLICT)
+
+    def test_tenant_cancellation_without_signed_initial_inventory_fails(self):
+        self.client.force_authenticate(user=self.tenant)
+        r = self.client.delete(f'/api/v1/tenants/{self.tenant.id}/properties/{self.property.id}/')
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.json()['error'], 'initial_inventory_not_signed')
 
     def test_finalize_final_inventory_sets_pending_approval(self):
         self.client.force_authenticate(user=self.admin)
@@ -399,6 +415,7 @@ class InventoryInitialAPITests(TestCase):
         self.client.force_authenticate(user=self.admin)
         
         # 1. Create closure ticket
+        self._create_and_sign_initial_inventory()
         self.client.force_authenticate(user=self.tenant)
         r_cancel = self.client.delete(f'/api/v1/tenants/{self.tenant.id}/properties/{self.property.id}/')
         self.assertEqual(r_cancel.status_code, status.HTTP_200_OK)
@@ -568,3 +585,63 @@ class InventoryInitialAPITests(TestCase):
         
         # Verify photo still exists!
         self.assertTrue(InventorySpacePhoto.objects.filter(id=photo_id, space_id=space_id).exists())
+
+    def test_closure_ticket_approval_automatically_registers_final_inventory(self):
+        from pot.models import Ticket, Inventory, InventorySpace
+        self.client.force_authenticate(user=self.admin)
+        
+        # 1. Create closure ticket
+        self._create_and_sign_initial_inventory()
+        self.client.force_authenticate(user=self.tenant)
+        r_cancel = self.client.delete(f'/api/v1/tenants/{self.tenant.id}/properties/{self.property.id}/')
+        self.assertEqual(r_cancel.status_code, status.HTTP_200_OK)
+        ticket_id = r_cancel.data['ticket_id']
+        ticket = Ticket.objects.get(id=ticket_id)
+        
+        # 2. Add some final space conditions to ticket and set status to PENDING_ADMIN
+        ticket.final_space_conditions = [
+            {"space_name": "Habitación 1", "condition": "GOOD", "observations": "Perfecto"},
+            {"space_name": "Baño 1", "condition": "REGULAR", "observations": "Fuga leve"}
+        ]
+        ticket.status = Ticket.Status.PENDING_ADMIN
+        ticket.save()
+
+        # Upload evidence (ticket attachment)
+        from pot.models import TicketAttachment, InventorySpacePhoto
+        photo_file = _make_test_image('tech_closure.jpg')
+        TicketAttachment.objects.create(
+            ticket=ticket,
+            image=photo_file,
+            uploaded_by=self.admin
+        )
+        
+        # 3. Approve closure ticket (which will close it and trigger final inventory creation)
+        self.client.force_authenticate(user=self.admin)
+        r_approve = self.client.post(f'/api/v1/tickets/{ticket_id}/admin-approve/')
+        self.assertEqual(r_approve.status_code, status.HTTP_200_OK)
+        
+        # 4. Verify that a FINAL inventory has been created for the property and tenant
+        final_inv = Inventory.objects.filter(
+            property=self.property,
+            tenant=self.tenant,
+            inventory_type=Inventory.Type.FINAL
+        ).first()
+        
+        self.assertIsNotNone(final_inv)
+        self.assertEqual(final_inv.status, Inventory.Status.ACCEPTED)
+        
+        # Verify that spaces are populated correctly from the final_space_conditions
+        spaces = list(final_inv.spaces.order_by('order'))
+        self.assertEqual(len(spaces), 2)
+        self.assertEqual(spaces[0].space_name, "Habitación 1")
+        self.assertEqual(spaces[0].condition, "GOOD")
+        self.assertEqual(spaces[0].observations, "Perfecto")
+        
+        self.assertEqual(spaces[1].space_name, "Baño 1")
+        self.assertEqual(spaces[1].condition, "REGULAR")
+        self.assertEqual(spaces[1].observations, "Fuga leve")
+
+        # Verify photo is copied to first space
+        self.assertEqual(spaces[0].photos.count(), 1)
+        photo_obj = spaces[0].photos.first()
+        self.assertIn("tech_closure", photo_obj.image.name)

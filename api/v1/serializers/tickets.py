@@ -8,7 +8,10 @@ class TicketPropertyBriefSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Property
-        fields = ['id', 'code', 'address', 'city', 'type', 'type_display', 'status']
+        fields = [
+            'id', 'code', 'address', 'city', 'type', 'type_display', 'status',
+            'rooms', 'bathrooms', 'living_rooms', 'kitchens', 'garages'
+        ]
 
 
 class TicketAttachmentSerializer(serializers.ModelSerializer):
@@ -17,7 +20,7 @@ class TicketAttachmentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TicketAttachment
-        fields = ['id', 'image_url', 'uploaded_at', 'uploaded_by', 'uploaded_by_detail']
+        fields = ['id', 'image_url', 'uploaded_at', 'uploaded_by', 'uploaded_by_detail', 'space_name']
 
     def get_image_url(self, obj):
         return obj.image.url if obj.image else None
@@ -118,6 +121,7 @@ class TicketDetailSerializer(TicketListSerializer):
 
 class TicketAttachmentUploadSerializer(serializers.Serializer):
     image = serializers.ImageField()
+    space_name = serializers.CharField(required=False, allow_blank=True, default='')
 
 
 class TicketReportProblemSerializer(serializers.Serializer):

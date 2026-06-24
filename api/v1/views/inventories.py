@@ -8,7 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from api.v1.exceptions import APIError
-from api.v1.pagination import StandardResultsSetPagination
+from api.v1.pagination import InventoryPagination
 from api.v1.permissions import CanAccessInventory, IsAdmin, IsStaffOperative, IsTenant
 from api.v1.serializers.inventories import (
     InventoryCreateSerializer,
@@ -57,7 +57,7 @@ class InventoryViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
-    pagination_class = StandardResultsSetPagination
+    pagination_class = InventoryPagination
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     def get_queryset(self):

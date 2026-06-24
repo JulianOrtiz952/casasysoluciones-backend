@@ -49,7 +49,10 @@ class InventoryPropertyBriefSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Property
-        fields = ['id', 'code', 'address', 'type', 'type_display', 'owner_name']
+        fields = [
+            'id', 'code', 'address', 'type', 'type_display', 'owner_name',
+            'rooms', 'bathrooms', 'living_rooms', 'kitchens', 'garages'
+        ]
 
 
 class InventoryListSerializer(serializers.ModelSerializer):

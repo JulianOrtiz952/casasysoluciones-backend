@@ -237,6 +237,18 @@ class TenantPropertyDissociateView(APIView):
 
         # If tenant is requesting the cancellation (or if it is not admin)
         if request.user.role == CustomUser.Role.TENANT or request.user.pk == tenant.pk:
+            # Check if initial inventory is signed
+            from pot.models import Inventory
+            signed_initial = Inventory.objects.filter(
+                property_association=assoc,
+                inventory_type=Inventory.Type.INITIAL,
+                status=Inventory.Status.ACCEPTED
+            ).exists()
+            if not signed_initial:
+                return Response({
+                    'error': 'initial_inventory_not_signed',
+                    'message': 'Debe firmar el inventario inicial de la propiedad antes de poder solicitar el cierre de contrato.'
+                }, status=status.HTTP_200_OK)
             from pot.models import Ticket
             active_ticket = Ticket.objects.filter(
                 property=prop,

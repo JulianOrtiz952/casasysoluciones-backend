@@ -447,8 +447,6 @@ def usuario_puede_acceder_inventario(user, inventory):
     return (
         user.role == CustomUser.Role.TENANT
         and inventory.tenant_id == user.pk
-        and inventory.property_association is not None
-        and inventory.property_association.dissociated_at is None
     )
 
 

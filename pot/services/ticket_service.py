@@ -253,6 +253,98 @@ def confirmar_ticket_reparacion(user, ticket_id):
         new_value=Ticket.Status.CLOSED,
     )
 
+    # Registrar inventario final si es ticket de cierre
+    if is_closure and ticket.tenant:
+        try:
+            from pot.models import Inventory, InventorySpace, UserPropertyAssociation
+            assoc = UserPropertyAssociation.objects.filter(
+                property=ticket.property,
+                user=ticket.tenant,
+                dissociated_at__isnull=True
+            ).first()
+            if not assoc:
+                assoc = UserPropertyAssociation.objects.filter(
+                    property=ticket.property,
+                    user=ticket.tenant
+                ).order_by('-associated_at').first()
+
+            inv = None
+            if assoc:
+                inv = Inventory.objects.filter(
+                    property_association=assoc,
+                    inventory_type=Inventory.Type.FINAL
+                ).first()
+
+            if not inv:
+                inv = Inventory.objects.create(
+                    property=ticket.property,
+                    tenant=ticket.tenant,
+                    property_association=assoc,
+                    inventory_type=Inventory.Type.FINAL,
+                    status=Inventory.Status.ACCEPTED,
+                    delivery_date=timezone.now().date(),
+                    observations=f'Inventario final generado automáticamente tras el cierre del ticket {ticket.public_code}.',
+                    signed_at=timezone.now(),
+                    signed_by=user,
+                    created_by=user
+                )
+
+                conditions = ticket.final_space_conditions or []
+                if not conditions:
+                    default_spaces = []
+                    if ticket.property.rooms:
+                        default_spaces.extend([f"Habitación {i}" for i in range(1, ticket.property.rooms + 1)])
+                    if ticket.property.bathrooms:
+                        default_spaces.extend([f"Baño {i}" for i in range(1, ticket.property.bathrooms + 1)])
+                    if ticket.property.living_rooms:
+                        default_spaces.extend([f"Sala / Comedor {i}" for i in range(1, ticket.property.living_rooms + 1)])
+                    if ticket.property.kitchens:
+                        default_spaces.extend([f"Cocina {i}" for i in range(1, ticket.property.kitchens + 1)])
+                    if ticket.property.garages:
+                        default_spaces.extend([f"Garaje {i}" for i in range(1, ticket.property.garages + 1)])
+                    if not default_spaces:
+                        default_spaces = ["Sala / Comedor 1", "Cocina 1", "Habitación 1", "Baño 1"]
+                    
+                    conditions = [
+                        {"space_name": name, "condition": "GOOD", "observations": ""}
+                        for name in default_spaces
+                    ]
+
+                for idx, cond in enumerate(conditions):
+                    space_name = cond.get('space_name')
+                    condition_val = cond.get('condition')
+                    obs_val = cond.get('observations', '')
+                    if space_name and condition_val:
+                        InventorySpace.objects.create(
+                            inventory=inv,
+                            space_name=space_name,
+                            condition=condition_val,
+                            observations=obs_val,
+                            quantity=1,
+                            order=idx
+                        )
+
+                # Copiar fotos adjuntas del ticket a sus correspondientes espacios en el inventario final
+                from pot.models import InventorySpacePhoto
+                spaces_map = {space.space_name: space for space in inv.spaces.all()}
+                first_space = inv.spaces.first()
+                for att in ticket.attachments.all():
+                    target_space = spaces_map.get(att.space_name) if att.space_name else None
+                    if not target_space:
+                        target_space = first_space
+                    if target_space:
+                        InventorySpacePhoto.objects.create(
+                            space=target_space,
+                            image=att.image,
+                            description=f"Evidencia de cierre - {att.image.name}",
+                            uploaded_by=att.uploaded_by
+                        )
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).error(
+                'Error al registrar inventario final tras cierre de contrato: %s', exc
+            )
+
     # Si es ticket de cierre, desasociar el inmueble del inquilino
     if is_closure and ticket.tenant:
         try:
@@ -300,7 +392,7 @@ def reportar_problema_reparacion(user, ticket_id, reason):
 
 
 @transaction.atomic
-def agregar_adjunto_tecnico(user, ticket_id, image_file):
+def agregar_adjunto_tecnico(user, ticket_id, image_file, space_name=''):
     """Allow the assigned technician to upload repair evidence."""
     try:
         ticket = Ticket.objects.prefetch_related(
@@ -329,6 +421,7 @@ def agregar_adjunto_tecnico(user, ticket_id, image_file):
     attachment = TicketAttachment.objects.create(
         ticket=ticket,
         image=image_file,
+        space_name=space_name or '',
         uploaded_by=user,
     )
     registrar_historial_ticket(

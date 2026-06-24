@@ -426,6 +426,7 @@ class TenantTicketViewSet(
                 request.user,
                 pk,
                 serializer.validated_data['image'],
+                space_name=serializer.validated_data.get('space_name', '')
             )
         except TicketServiceError as exc:
             _handle_service_error(exc)
@@ -433,6 +434,45 @@ class TenantTicketViewSet(
             TicketAttachmentSerializer(attachment).data,
             status=status.HTTP_201_CREATED,
         )
+
+    @action(detail=True, methods=['delete'], url_path='delete-attachment')
+    def delete_attachment(self, request, pk=None):
+        try:
+            ticket = Ticket.objects.get(pk=pk)
+        except Ticket.DoesNotExist:
+            raise APIError('not_found', 'Ticket no encontrado.', status_code=status.HTTP_404_NOT_FOUND)
+
+        user = request.user
+        is_assigned_tech = ticket.assigned_technicians.filter(pk=user.pk).exists()
+        if not is_assigned_tech and not user.is_staff_operative():
+            raise APIError('not_authorized', 'No tienes permiso para realizar esta acción.', status_code=status.HTTP_403_FORBIDDEN)
+
+        attachment_id = request.data.get('attachment_id') or request.query_params.get('attachment_id')
+        if not attachment_id:
+            raise APIError('invalid_param', 'Debe especificar el id del adjunto a eliminar.', status_code=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            attachment = ticket.attachments.get(pk=attachment_id)
+        except TicketAttachment.DoesNotExist:
+            raise APIError('not_found', 'Adjunto no encontrado en este ticket.', status_code=status.HTTP_404_NOT_FOUND)
+
+        if user.role == CustomUser.Role.TECHNICIAN and attachment.uploaded_by_id != user.pk:
+            raise APIError('not_authorized', 'Solo puedes eliminar tus propios adjuntos.', status_code=status.HTTP_403_FORBIDDEN)
+
+        if attachment.image:
+            attachment.image.delete(save=False)
+        attachment.delete()
+
+        from pot.services.ticket_service import registrar_historial_ticket
+        from pot.models import TicketHistory
+        registrar_historial_ticket(
+            ticket,
+            TicketHistory.Action.STATUS_CHANGE,
+            f'Evidencia de reparación eliminada por {user.email}',
+            created_by=user,
+        )
+
+        return Response(TicketDetailSerializer(ticket).data)
 
     @action(detail=True, methods=['post'], url_path='complete')
     def complete(self, request, pk=None):
