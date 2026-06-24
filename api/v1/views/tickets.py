@@ -325,8 +325,11 @@ class TenantTicketViewSet(
                 ids_list = [assigned_technicians_ids]
             elif assigned_technicians_ids in (None, 0):
                 ids_list = []
-            else:
-                ids_list = []
+            if len(ids_list) > 1:
+                return Response(
+                    {'error': 'Solo se puede asignar un técnico a la vez.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
             tech_users = []
             for tid in ids_list:
