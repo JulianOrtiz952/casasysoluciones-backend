@@ -84,8 +84,12 @@ class PropertyViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = PropertyCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        validated_data = serializer.validated_data
+        images = request.FILES.getlist('images')
+        if images:
+            validated_data['images'] = images
         try:
-            prop = property_service.crear_propiedad(request.user, **serializer.validated_data)
+            prop = property_service.crear_propiedad(request.user, **validated_data)
         except PropertyServiceError as exc:
             _handle_service_error(exc)
         return Response(PropertyDetailSerializer(prop).data, status=status.HTTP_201_CREATED)
@@ -94,11 +98,44 @@ class PropertyViewSet(viewsets.ModelViewSet):
         prop = self.get_object()
         serializer = PropertyUpdateSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
-        if not serializer.validated_data:
-            return Response(PropertyDetailSerializer(prop).data)
-            
+        validated_data = serializer.validated_data
+
+        images = request.FILES.getlist('images')
+        if images:
+            validated_data['images'] = images
+
+        if hasattr(request.data, 'getlist'):
+            deleted_ids_raw = request.data.getlist('deleted_image_ids') or request.data.get('deleted_image_ids')
+        elif hasattr(request.data, 'get'):
+            deleted_ids_raw = request.data.get('deleted_image_ids')
+        else:
+            deleted_ids_raw = None
+
+        if deleted_ids_raw:
+            clean_ids = []
+            if isinstance(deleted_ids_raw, str):
+                import json
+                try:
+                    parsed = json.loads(deleted_ids_raw)
+                    if isinstance(parsed, list):
+                        clean_ids = [int(x) for x in parsed]
+                except Exception:
+                    clean_ids = [int(x) for x in deleted_ids_raw.split(',') if str(x).strip().isdigit()]
+            elif isinstance(deleted_ids_raw, list):
+                for item in deleted_ids_raw:
+                    if isinstance(item, int):
+                        clean_ids.append(item)
+                    elif isinstance(item, str) and str(item).isdigit():
+                        clean_ids.append(int(item))
+            if clean_ids:
+                validated_data['deleted_image_ids'] = clean_ids
+
+        set_cover_id = request.data.get('set_cover_image_id') if hasattr(request.data, 'get') else None
+        if set_cover_id and str(set_cover_id).isdigit():
+            validated_data['set_cover_image_id'] = int(set_cover_id)
+
         # Check validation: cannot deactivate if there is an active tenant
-        if 'is_active' in serializer.validated_data and not serializer.validated_data['is_active']:
+        if 'is_active' in validated_data and not validated_data['is_active']:
             if prop.get_active_tenant() is not None:
                 raise APIError(
                     'cannot_deactivate_rented_property',
@@ -107,11 +144,44 @@ class PropertyViewSet(viewsets.ModelViewSet):
                 )
                 
         try:
-            property_service.actualizar_propiedad(prop, request.user, **serializer.validated_data)
+            property_service.actualizar_propiedad(prop, request.user, **validated_data)
         except PropertyServiceError as exc:
             _handle_service_error(exc)
         prop.refresh_from_db()
         return Response(PropertyDetailSerializer(prop).data)
+
+    @action(detail=True, methods=['post'], url_path='images')
+    def upload_images(self, request, pk=None):
+        prop = self.get_object()
+        images = request.FILES.getlist('images') or request.FILES.getlist('image')
+        if not images:
+            raise APIError('no_images_provided', 'No se proporcionaron imágenes.', status_code=status.HTTP_400_BAD_REQUEST)
+        try:
+            property_service.agregar_imagenes(prop, images)
+        except PropertyServiceError as exc:
+            _handle_service_error(exc)
+        prop.refresh_from_db()
+        return Response(PropertyDetailSerializer(prop).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['delete'], url_path=r'images/(?P<image_id>\d+)')
+    def delete_image(self, request, pk=None, image_id=None):
+        prop = self.get_object()
+        try:
+            property_service.eliminar_imagen(prop, image_id)
+        except PropertyServiceError as exc:
+            _handle_service_error(exc)
+        prop.refresh_from_db()
+        return Response(PropertyDetailSerializer(prop).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'], url_path=r'images/(?P<image_id>\d+)/set_cover')
+    def set_cover_image(self, request, pk=None, image_id=None):
+        prop = self.get_object()
+        try:
+            property_service.establecer_portada(prop, image_id)
+        except PropertyServiceError as exc:
+            _handle_service_error(exc)
+        prop.refresh_from_db()
+        return Response(PropertyDetailSerializer(prop).data, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=['get'], url_path='stats')
     def stats(self, request):

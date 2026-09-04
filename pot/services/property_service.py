@@ -1,6 +1,6 @@
 from django.db.models import Count
 
-from pot.models import Property, PropertyHistory, UserPropertyAssociation
+from pot.models import Property, PropertyHistory, PropertyImage, UserPropertyAssociation
 
 
 class PropertyServiceError(Exception):
@@ -72,6 +72,8 @@ def crear_propiedad(created_by, **data):
         address = 'Ver enlace de Google Maps adjunto'
     validar_direccion_unica(address)
     cover_image = data.pop('cover_image', None)
+    gallery_images = data.pop('images', [])
+
     prop = Property(
         code=generar_codigo_propiedad(),
         address=address.strip(),
@@ -82,6 +84,20 @@ def crear_propiedad(created_by, **data):
     if cover_image is not None:
         prop.cover_image = cover_image
     prop.save()
+
+    # Save to PropertyImage model
+    if cover_image is not None:
+        PropertyImage.objects.create(property=prop, image=cover_image, is_cover=True)
+
+    for img_file in gallery_images:
+        if cover_image is not None and getattr(img_file, 'name', None) == getattr(cover_image, 'name', None):
+            continue
+        is_first_no_cover = not prop.images.filter(is_cover=True).exists()
+        new_pi = PropertyImage.objects.create(property=prop, image=img_file, is_cover=is_first_no_cover)
+        if is_first_no_cover and not prop.cover_image:
+            prop.cover_image = new_pi.image
+            prop.save()
+
     registrar_evento_propiedad(
         prop,
         PropertyHistory.EventType.CREATED,
@@ -97,9 +113,44 @@ def actualizar_propiedad(prop, updated_by, **data):
     if 'address' in data:
         validar_direccion_unica(data['address'], exclude_pk=prop.pk)
         data['address'] = data['address'].strip()
+
+    cover_image = data.pop('cover_image', None)
+    new_images = data.pop('images', [])
+    deleted_image_ids = data.pop('deleted_image_ids', [])
+    set_cover_image_id = data.pop('set_cover_image_id', None)
+
+    # 1. Handle deleted images
+    if deleted_image_ids:
+        PropertyImage.objects.filter(property=prop, id__in=deleted_image_ids).delete()
+
+    # 2. Handle set cover image from existing
+    if set_cover_image_id:
+        target_img = PropertyImage.objects.filter(property=prop, id=set_cover_image_id).first()
+        if target_img:
+            PropertyImage.objects.filter(property=prop, is_cover=True).update(is_cover=False)
+            target_img.is_cover = True
+            target_img.save()
+            prop.cover_image = target_img.image
+
+    # 3. Handle new cover image upload
+    if cover_image is not None:
+        prop.cover_image = cover_image
+        PropertyImage.objects.filter(property=prop, is_cover=True).update(is_cover=False)
+        PropertyImage.objects.create(property=prop, image=cover_image, is_cover=True)
+
+    # 4. Handle new gallery images upload
+    for img_file in new_images:
+        if cover_image is not None and getattr(img_file, 'name', None) == getattr(cover_image, 'name', None):
+            continue
+        is_first_no_cover = not prop.images.filter(is_cover=True).exists()
+        new_pi = PropertyImage.objects.create(property=prop, image=img_file, is_cover=is_first_no_cover)
+        if is_first_no_cover and not prop.cover_image:
+            prop.cover_image = new_pi.image
+
     for field, value in data.items():
         setattr(prop, field, value)
     prop.save()
+
     if 'status' in data and old_status != prop.status:
         registrar_evento_propiedad(
             prop,
@@ -109,6 +160,43 @@ def actualizar_propiedad(prop, updated_by, **data):
             details={'old': old_status, 'new': prop.status},
         )
     return prop
+
+
+def agregar_imagenes(prop, images):
+    for img_file in images:
+        is_first_no_cover = not prop.images.filter(is_cover=True).exists()
+        new_pi = PropertyImage.objects.create(property=prop, image=img_file, is_cover=is_first_no_cover)
+        if is_first_no_cover and not prop.cover_image:
+            prop.cover_image = new_pi.image
+            prop.save()
+
+
+def eliminar_imagen(prop, image_id):
+    img = PropertyImage.objects.filter(property=prop, id=image_id).first()
+    if not img:
+        raise PropertyServiceError('image_not_found', 'Imagen no encontrada.')
+    was_cover = img.is_cover
+    img.delete()
+    if was_cover:
+        next_img = PropertyImage.objects.filter(property=prop).first()
+        if next_img:
+            next_img.is_cover = True
+            next_img.save()
+            prop.cover_image = next_img.image
+        else:
+            prop.cover_image = None
+        prop.save()
+
+
+def establecer_portada(prop, image_id):
+    img = PropertyImage.objects.filter(property=prop, id=image_id).first()
+    if not img:
+        raise PropertyServiceError('image_not_found', 'Imagen no encontrada.')
+    PropertyImage.objects.filter(property=prop, is_cover=True).update(is_cover=False)
+    img.is_cover = True
+    img.save()
+    prop.cover_image = img.image
+    prop.save()
 
 
 def estadisticas_propiedades():
