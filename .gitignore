@@ -38,7 +38,14 @@ venv.bak/
 
 # Environment Secrets
 .env
+.env.*
+!.env.example
 .secrets
+*.pem
+*.key
+backups/
+dumps/
+
 
 # Django local database and data directory
 db.sqlite3

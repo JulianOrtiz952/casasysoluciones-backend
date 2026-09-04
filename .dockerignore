@@ -1,10 +1,37 @@
 .venv
 venv
+env
 __pycache__
 *.pyc
+*.pyo
+*.pyd
 .git
+.gitignore
+
+# Archivos de entorno y secretos
 .env
-db.sqlite3
-media
-staticfiles
-.cursor
+.env.*
+!.env.example
+.secrets
+*.pem
+*.key
+
+# Archivos de base de datos locales
+*.sqlite3
+*.db
+data/
+
+# Archivos estáticos y de medios locales
+media/
+media_root/
+uploads/
+staticfiles/
+static_root/
+backups/
+dumps/
+
+# Configuración de editor/IDE
+.vscode/
+.idea/
+.cursor/
+

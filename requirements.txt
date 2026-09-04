@@ -31,3 +31,7 @@ sqlparse==0.5.5
 uritemplate==4.2.0
 urllib3==2.6.3
 dj-database-url==2.3.0
+psycopg2-binary>=2.9.9
+
+
+
