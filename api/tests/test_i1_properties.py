@@ -1,10 +1,11 @@
 """Pruebas i1 inmuebles — CP-RF-06 y CP-RF-07 (RF-06, RF-07)."""
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from pot.models import CustomUser, Property, PropertyHistory, UserPropertyAssociation
+from pot.models import CustomUser, Property, PropertyHistory, PropertyImage, UserPropertyAssociation
 
 
 class PropertyManagementAPITests(TestCase):
@@ -336,3 +337,61 @@ class PropertyManagementAPITests(TestCase):
         codes = [p['code'] for p in results]
         self.assertIn('PRO-00606', codes)
         self.assertNotIn('PRO-00607', codes)
+
+    def test_create_property_with_multiple_images(self):
+        """Prueba registro de propiedad con portada y múltiples fotos de galería."""
+        self.client.force_authenticate(user=self.admin)
+        gif_bytes = b'GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;'
+        cover = SimpleUploadedFile("cover.gif", gif_bytes, content_type="image/gif")
+        img1 = SimpleUploadedFile("img1.gif", gif_bytes, content_type="image/gif")
+        img2 = SimpleUploadedFile("img2.gif", gif_bytes, content_type="image/gif")
+
+        r = self.client.post(
+            '/api/v1/properties/',
+            {
+                'address': 'Calle Galeria 123',
+                'type': Property.Type.APARTMENT,
+                'owner_name': 'Galeria Owner',
+                'cover_image': cover,
+                'images': [img1, img2],
+            },
+            format='multipart',
+        )
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED)
+        prop_id = r.data['id']
+        prop = Property.objects.get(id=prop_id)
+        
+        self.assertIsNotNone(prop.cover_image)
+        # Deberían existir 3 instancias en PropertyImage (1 portada + 2 galería)
+        self.assertEqual(PropertyImage.objects.filter(property=prop).count(), 3)
+        self.assertEqual(len(r.data['images']), 3)
+
+    def test_update_property_delete_and_add_images(self):
+        """Prueba actualización de propiedad añadiendo nuevas fotos y eliminando existentes."""
+        self.client.force_authenticate(user=self.admin)
+        prop = Property.objects.create(
+            code='PRO-00800',
+            address='Calle Edicion 456',
+            type=Property.Type.HOUSE,
+            owner_name='Edit Owner',
+            status=Property.Status.AVAILABLE,
+        )
+        p_img1 = PropertyImage.objects.create(property=prop, image='properties/gallery/1.jpg', is_cover=True)
+        p_img2 = PropertyImage.objects.create(property=prop, image='properties/gallery/2.jpg', is_cover=False)
+
+        new_img = SimpleUploadedFile("new3.jpg", b"fake_new3", content_type="image/jpeg")
+
+        r = self.client.patch(
+            f'/api/v1/properties/{prop.id}/',
+            {
+                'deleted_image_ids': [p_img2.id],
+                'images': [new_img],
+            },
+            format='multipart',
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        # p_img2 debe ser borrada y new_img agregada
+        self.assertFalse(PropertyImage.objects.filter(id=p_img2.id).exists())
+        self.assertTrue(PropertyImage.objects.filter(id=p_img1.id).exists())
+        self.assertEqual(PropertyImage.objects.filter(property=prop).count(), 2)
+
