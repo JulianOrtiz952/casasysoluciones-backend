@@ -11,6 +11,8 @@ MAX_UPLOAD_BYTES = 12 * 1024 * 1024
 MAX_IMAGE_PIXELS = 50_000_000
 MAX_IMAGE_DIMENSION = 1920
 WEBP_QUALITY = 82
+THUMBNAIL_DIMENSION = 96
+THUMBNAIL_QUALITY = 35
 ALLOWED_FORMATS = {'JPEG', 'PNG', 'WEBP', 'GIF'}
 
 
@@ -18,8 +20,8 @@ class PropertyImageValidationError(Exception):
     pass
 
 
-def optimize_property_image(uploaded_file):
-    """Validate and normalize an uploaded property photo for fast web delivery."""
+def optimize_property_image_variants(uploaded_file):
+    """Return a web-sized photo and a tiny preview decoded from the upload once."""
     if not uploaded_file:
         return None
 
@@ -57,19 +59,34 @@ def optimize_property_image(uploaded_file):
         except (AttributeError, OSError):
             pass
 
+    if image.mode not in ('RGB', 'RGBA'):
+        image = image.convert('RGBA' if 'transparency' in image.info else 'RGB')
+
+    preview = image.copy()
+    preview.thumbnail(
+        (THUMBNAIL_DIMENSION, THUMBNAIL_DIMENSION),
+        Image.Resampling.LANCZOS,
+    )
     image.thumbnail(
         (MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION),
         Image.Resampling.LANCZOS,
     )
-    if image.mode not in ('RGB', 'RGBA'):
-        image = image.convert('RGBA' if 'transparency' in image.info else 'RGB')
-
+    stem = slugify(Path(uploaded_file.name).stem) or 'inmueble'
     output = BytesIO()
     image.save(output, format='WEBP', quality=WEBP_QUALITY, method=4)
-    output.seek(0)
+    preview_output = BytesIO()
+    preview.save(preview_output, format='WEBP', quality=THUMBNAIL_QUALITY, method=4)
 
-    stem = slugify(Path(uploaded_file.name).stem) or 'inmueble'
-    return ContentFile(output.read(), name=f'{stem}.webp')
+    return (
+        ContentFile(output.getvalue(), name=f'{stem}.webp'),
+        ContentFile(preview_output.getvalue(), name=f'{stem}-preview.webp'),
+    )
+
+
+def optimize_property_image(uploaded_file):
+    """Compatibility helper for callers that only need the main variant."""
+    variants = optimize_property_image_variants(uploaded_file)
+    return variants[0] if variants else None
 
 
 def prepare_property_images(cover_image, gallery_images, *, existing_count=0):
@@ -80,6 +97,6 @@ def prepare_property_images(cover_image, gallery_images, *, existing_count=0):
             f'Cada inmueble puede tener máximo {MAX_PROPERTY_IMAGES} imágenes.'
         )
 
-    optimized_cover = optimize_property_image(cover_image) if cover_image is not None else None
-    optimized_gallery = [optimize_property_image(image) for image in gallery_images]
+    optimized_cover = optimize_property_image_variants(cover_image) if cover_image is not None else None
+    optimized_gallery = [optimize_property_image_variants(image) for image in gallery_images]
     return optimized_cover, optimized_gallery

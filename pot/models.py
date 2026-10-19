@@ -303,6 +303,12 @@ class Property(models.Model):
 class PropertyImage(models.Model):
     property = models.ForeignKey(Property, on_delete=models.CASCADE, related_name='images')
     image = models.ImageField(upload_to='properties/gallery/%Y/%m/', max_length=255)
+    thumbnail = models.ImageField(
+        upload_to='properties/gallery/thumbnails/%Y/%m/',
+        max_length=255,
+        blank=True,
+        null=True,
+    )
     is_cover = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 

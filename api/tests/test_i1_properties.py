@@ -370,10 +370,9 @@ class PropertyManagementAPITests(TestCase):
     def test_create_property_with_multiple_images(self):
         """Prueba registro de propiedad con portada y múltiples fotos de galería."""
         self.client.force_authenticate(user=self.admin)
-        gif_bytes = b'GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;'
-        cover = SimpleUploadedFile("cover.gif", gif_bytes, content_type="image/gif")
-        img1 = SimpleUploadedFile("img1.gif", gif_bytes, content_type="image/gif")
-        img2 = SimpleUploadedFile("img2.gif", gif_bytes, content_type="image/gif")
+        cover = uploaded_image('cover.png', size=(1200, 800))
+        img1 = uploaded_image('img1.png', size=(1000, 700), color='blue')
+        img2 = uploaded_image('img2.png', size=(800, 600), color='green')
 
         r = self.client.post(
             '/api/v1/properties/',
@@ -395,6 +394,8 @@ class PropertyManagementAPITests(TestCase):
         self.assertEqual(PropertyImage.objects.filter(property=prop).count(), 3)
         self.assertEqual(len(r.data['images']), 3)
         self.assertTrue(all(image.image.name.endswith('.webp') for image in prop.images.all()))
+        self.assertTrue(all('preview' in image.thumbnail.name and image.thumbnail.name.endswith('.webp') for image in prop.images.all()))
+        self.assertTrue(all(0 < image.thumbnail.size < image.image.size for image in prop.images.all()))
         self.assertEqual(prop.cover_image.name, prop.images.get(is_cover=True).image.name)
 
     def test_create_with_maps_only_uses_unique_fallback_without_external_request(self):

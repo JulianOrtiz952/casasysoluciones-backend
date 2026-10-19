@@ -12,7 +12,7 @@ class ActiveTenantBriefSerializer(serializers.ModelSerializer):
 class PropertyImageSerializer(serializers.ModelSerializer):
     class Meta:
         model = PropertyImage
-        fields = ['id', 'image', 'is_cover']
+        fields = ['id', 'image', 'thumbnail', 'is_cover']
 
 
 class PublicPropertySerializer(serializers.ModelSerializer):
