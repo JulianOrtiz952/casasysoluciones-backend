@@ -14,6 +14,45 @@ class PropertyImageSerializer(serializers.ModelSerializer):
         model = PropertyImage
         fields = ['id', 'image', 'is_cover']
 
+
+class PublicPropertySerializer(serializers.ModelSerializer):
+    """Only fields that are safe and useful in the public property catalogue."""
+
+    type_display = serializers.CharField(source='get_type_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    cover_image = serializers.ImageField(read_only=True)
+    images = PropertyImageSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Property
+        fields = [
+            'id',
+            'code',
+            'address',
+            'city',
+            'building_name',
+            'unit_label',
+            'type',
+            'type_display',
+            'status',
+            'status_display',
+            'price',
+            'rooms',
+            'bathrooms',
+            'living_rooms',
+            'kitchens',
+            'garages',
+            'is_commercial',
+            'in_complex',
+            'admin_included',
+            'admin_value',
+            'cover_image',
+            'images',
+            'description',
+            'created_at',
+            'updated_at',
+        ]
+
 class PropertyListSerializer(serializers.ModelSerializer):
     type_display = serializers.CharField(source='get_type_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)

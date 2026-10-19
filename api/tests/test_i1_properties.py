@@ -1,11 +1,22 @@
 """Pruebas i1 inmuebles — CP-RF-06 y CP-RF-07 (RF-06, RF-07)."""
 
+from io import BytesIO
+from unittest.mock import patch
+
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from PIL import Image
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from pot.models import CustomUser, Property, PropertyHistory, PropertyImage, UserPropertyAssociation
+from pot.services import property_service
+
+
+def uploaded_image(name='photo.png', size=(32, 24), color='red'):
+    output = BytesIO()
+    Image.new('RGB', size, color).save(output, format='PNG')
+    return SimpleUploadedFile(name, output.getvalue(), content_type='image/png')
 
 
 class PropertyManagementAPITests(TestCase):
@@ -338,6 +349,24 @@ class PropertyManagementAPITests(TestCase):
         self.assertIn('PRO-00606', codes)
         self.assertNotIn('PRO-00607', codes)
 
+    def test_anonymous_property_response_excludes_private_fields(self):
+        prop = Property.objects.create(
+            code='PRO-00608',
+            address='Calle Publica 8',
+            type=Property.Type.HOUSE,
+            owner_name='Nombre privado',
+            status=Property.Status.AVAILABLE,
+            is_active=True,
+        )
+
+        r = self.client.get(f'/api/v1/properties/{prop.id}/')
+
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertNotIn('owner_name', r.data)
+        self.assertNotIn('active_tenant', r.data)
+        self.assertNotIn('observations', r.data)
+        self.assertNotIn('created_by_email', r.data)
+
     def test_create_property_with_multiple_images(self):
         """Prueba registro de propiedad con portada y múltiples fotos de galería."""
         self.client.force_authenticate(user=self.admin)
@@ -365,6 +394,58 @@ class PropertyManagementAPITests(TestCase):
         # Deberían existir 3 instancias en PropertyImage (1 portada + 2 galería)
         self.assertEqual(PropertyImage.objects.filter(property=prop).count(), 3)
         self.assertEqual(len(r.data['images']), 3)
+        self.assertTrue(all(image.image.name.endswith('.webp') for image in prop.images.all()))
+        self.assertEqual(prop.cover_image.name, prop.images.get(is_cover=True).image.name)
+
+    def test_create_with_maps_only_uses_unique_fallback_without_external_request(self):
+        self.client.force_authenticate(user=self.admin)
+        payload = {
+            'address': 'Ver enlace de Google Maps adjunto',
+            'google_maps_link': 'https://maps.google.com/example',
+            'type': Property.Type.HOUSE,
+            'owner_name': 'Maps Owner',
+        }
+
+        with patch('urllib.request.urlopen') as urlopen:
+            first = self.client.post('/api/v1/properties/', payload, format='json')
+            second = self.client.post('/api/v1/properties/', payload, format='json')
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(first.data['address'], second.data['address'])
+        urlopen.assert_not_called()
+
+    def test_invalid_gallery_image_does_not_leave_partial_property(self):
+        self.client.force_authenticate(user=self.admin)
+        invalid = SimpleUploadedFile('broken.jpg', b'not-an-image', content_type='image/jpeg')
+
+        response = self.client.post(
+            '/api/v1/properties/',
+            {
+                'address': 'Calle Imagen Invalida 1',
+                'type': Property.Type.HOUSE,
+                'owner_name': 'Owner',
+                'images': [invalid],
+            },
+            format='multipart',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()['error']['code'], 'invalid_property_image')
+        self.assertFalse(Property.objects.filter(address='Calle Imagen Invalida 1').exists())
+
+    def test_create_rolls_back_database_if_gallery_storage_fails(self):
+        with patch.object(PropertyImage.objects, 'create', side_effect=OSError('storage unavailable')):
+            with self.assertRaises(OSError):
+                property_service.crear_propiedad(
+                    self.admin,
+                    address='Calle Rollback 1',
+                    type=Property.Type.HOUSE,
+                    owner_name='Owner',
+                    cover_image=uploaded_image(),
+                )
+
+        self.assertFalse(Property.objects.filter(address='Calle Rollback 1').exists())
 
     def test_update_property_delete_and_add_images(self):
         """Prueba actualización de propiedad añadiendo nuevas fotos y eliminando existentes."""
@@ -379,7 +460,7 @@ class PropertyManagementAPITests(TestCase):
         p_img1 = PropertyImage.objects.create(property=prop, image='properties/gallery/1.jpg', is_cover=True)
         p_img2 = PropertyImage.objects.create(property=prop, image='properties/gallery/2.jpg', is_cover=False)
 
-        new_img = SimpleUploadedFile("new3.jpg", b"fake_new3", content_type="image/jpeg")
+        new_img = uploaded_image('new3.png')
 
         r = self.client.patch(
             f'/api/v1/properties/{prop.id}/',

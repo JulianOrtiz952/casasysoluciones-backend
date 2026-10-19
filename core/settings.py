@@ -374,7 +374,9 @@ AWS_S3_ENDPOINT_URL = os.environ.get('AWS_S3_ENDPOINT_URL', '').strip()
 AWS_S3_CUSTOM_DOMAIN = os.environ.get('AWS_S3_CUSTOM_DOMAIN', '').strip()
 
 AWS_S3_OBJECT_PARAMETERS = {
-    'CacheControl': 'max-age=86400',
+    # Upload paths are immutable; a one-year browser/CDN cache avoids downloading
+    # the same property photo again while navigating the catalogue.
+    'CacheControl': 'public, max-age=31536000, immutable',
 }
 AWS_S3_SIGNATURE_VERSION = 's3v4'
 AWS_S3_REGION_NAME = 'auto'

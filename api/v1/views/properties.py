@@ -12,6 +12,7 @@ from api.v1.serializers.properties import (
     PropertyDetailSerializer,
     PropertyHistorySerializer,
     PropertyListSerializer,
+    PublicPropertySerializer,
     PropertyUpdateSerializer,
 )
 from pot.models import Property
@@ -23,6 +24,7 @@ def _handle_service_error(exc):
     status_map = {
         'address_exists': status.HTTP_400_BAD_REQUEST,
         'address_required': status.HTTP_400_BAD_REQUEST,
+        'property_creation_conflict': status.HTTP_409_CONFLICT,
     }
     raise APIError(
         exc.code,
@@ -73,6 +75,10 @@ class PropertyViewSet(viewsets.ModelViewSet):
         return qs
 
     def get_serializer_class(self):
+        if self.action in ('list', 'retrieve') and (
+            not self.request.user or not self.request.user.is_authenticated
+        ):
+            return PublicPropertySerializer
         if self.action == 'retrieve':
             return PropertyDetailSerializer
         if self.action == 'create':
