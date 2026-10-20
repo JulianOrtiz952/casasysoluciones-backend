@@ -3,6 +3,7 @@ import os
 import sys
 import dj_database_url
 from dotenv import load_dotenv
+from corsheaders.defaults import default_headers
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -312,8 +313,18 @@ SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
 CSRF_COOKIE_HTTPONLY = True
 
-LOGIN_ATTEMPT_LIMIT = int(os.environ.get('LOGIN_ATTEMPT_LIMIT', '5'))
-LOGIN_COOLDOWN = int(os.environ.get('LOGIN_COOLDOWN', '900'))
+LOGIN_LOCKOUT_SCHEDULE = (
+    (5, 30),
+    (7, 60),
+    (9, 300),
+    (11, 600),
+    (13, 1800),
+)
+LOGIN_NETWORK_ATTEMPT_LIMIT = int(os.environ.get('LOGIN_NETWORK_ATTEMPT_LIMIT', '25'))
+LOGIN_NETWORK_COOLDOWN = int(os.environ.get('LOGIN_NETWORK_COOLDOWN', '1800'))
+LOGIN_ATTEMPT_RESET_WINDOW = int(os.environ.get('LOGIN_ATTEMPT_RESET_WINDOW', '86400'))
+
+CORS_ALLOW_HEADERS = (*default_headers, 'x-device-id')
 
 EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
 EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
@@ -352,7 +363,7 @@ SPECTACULAR_SETTINGS = {
         {'name': 'Inventories', 'description': 'Inventario inicial RF-08 a RF-12'},
         {'name': 'Tickets', 'description': 'Creación de tickets RF-13 a RF-17'},
         {'name': 'Admin', 'description': 'Operaciones administrativas (carga Excel)'},
-        {'name': 'Legacy', 'description': 'Catálogo público api.Inmueble (compatibilidad)'},
+        {'name': 'Legacy', 'description': 'Compatibilidad autenticada para clientes administrativos'},
         {'name': 'Catalogs', 'description': 'Enums y catálogos'},
     ],
     'SCHEMA_PATH_PREFIX': '/api/v1/',

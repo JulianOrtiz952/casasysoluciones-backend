@@ -3,9 +3,6 @@ from django.db import models
 from django.core.validators import MinValueValidator
 from django.utils import timezone
 import re
-import html as html_lib
-import urllib.request
-import urllib.parse
 
 
 class CustomUserManager(BaseUserManager):
@@ -130,6 +127,18 @@ class CustomUser(AbstractUser):
         return self.role in (self.Role.ADMIN, self.Role.ASSISTANT)
 
 
+class LoginThrottle(models.Model):
+    """Contador de intentos de acceso sin almacenar IP, dispositivo o correo en claro."""
+
+    scope_hash = models.CharField(max_length=64, unique=True)
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
+    locked_until = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True, db_index=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+
+
 class UserPropertyAssociation(models.Model):
     user = models.ForeignKey(
         CustomUser,
@@ -241,54 +250,6 @@ class Property(models.Model):
         return f'{self.code} - {self.address}'
 
     def save(self, *args, **kwargs):
-        if self.google_maps_link and (not self.address or self.address == 'Ver enlace de Google Maps adjunto'):
-            try:
-                req = urllib.request.Request(self.google_maps_link, headers={'User-Agent': 'Mozilla/5.0'})
-                res = urllib.request.urlopen(req, timeout=10)
-                html_content = res.read().decode('utf-8', errors='ignore')
-
-                titulo_maps = ''
-                subtitulo_maps = ''
-
-                for meta_match in re.finditer(r'<meta\s+([^>]+)>', html_content):
-                    attrs = meta_match.group(1)
-                    if 'property="og:title"' in attrs:
-                        c_match = re.search(r'content="([^"]+)"', attrs)
-                        if c_match:
-                            titulo_maps = c_match.group(1)
-                    elif 'property="og:description"' in attrs:
-                        c_match = re.search(r'content="([^"]+)"', attrs)
-                        if c_match:
-                            subtitulo_maps = c_match.group(1)
-
-                titulo_maps = html_lib.unescape(titulo_maps).strip()
-                subtitulo_maps = html_lib.unescape(subtitulo_maps).strip()
-
-                if titulo_maps:
-                    def starts_with_num(s):
-                        return (s[0].isdigit() or s[0] in ['-', '+']) if s else False
-
-                    if ' · Google Maps' in subtitulo_maps:
-                        subtitulo_maps = subtitulo_maps.replace(' · Google Maps', '')
-
-                    if starts_with_num(titulo_maps):
-                        if starts_with_num(subtitulo_maps):
-                            self.address = titulo_maps
-                        else:
-                            self.address = subtitulo_maps if subtitulo_maps else titulo_maps
-                    else:
-                        self.address = titulo_maps
-                else:
-                    final_url = res.geturl()
-                    if '/search/' in final_url:
-                        query = final_url.split('/search/')[1].split('?')[0].split('/')[0]
-                        self.address = urllib.parse.unquote_plus(query)
-                    elif '/place/' in final_url:
-                        query = final_url.split('/place/')[1].split('/')[0]
-                        self.address = urllib.parse.unquote_plus(query)
-            except Exception as e:
-                print(f'Error resolving maps link in Property: {e}')
-
         super().save(*args, **kwargs)
 
     def get_active_tenant(self):

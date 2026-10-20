@@ -4,8 +4,6 @@ from io import BytesIO
 from django.core.files.uploadedfile import InMemoryUploadedFile
 import sys
 import os
-import urllib.request
-import urllib.parse
 
 
 class Inmueble(models.Model):
@@ -38,57 +36,6 @@ class Inmueble(models.Model):
     creado_en = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        if self.direccion == 'Ver enlace de Google Maps adjunto' and self.enlace_google_maps:
-            try:
-                import re
-                import html as html_lib
-                req = urllib.request.Request(self.enlace_google_maps, headers={'User-Agent': 'Mozilla/5.0'})
-                res = urllib.request.urlopen(req, timeout=10)
-                html_content = res.read().decode('utf-8', errors='ignore')
-
-                titulo_maps = ''
-                subtitulo_maps = ''
-
-                for meta_match in re.finditer(r'<meta\s+([^>]+)>', html_content):
-                    attrs = meta_match.group(1)
-                    if 'property="og:title"' in attrs:
-                        c_match = re.search(r'content="([^"]+)"', attrs)
-                        if c_match:
-                            titulo_maps = c_match.group(1)
-                    elif 'property="og:description"' in attrs:
-                        c_match = re.search(r'content="([^"]+)"', attrs)
-                        if c_match:
-                            subtitulo_maps = c_match.group(1)
-
-                titulo_maps = html_lib.unescape(titulo_maps).strip()
-                subtitulo_maps = html_lib.unescape(subtitulo_maps).strip()
-
-                if titulo_maps:
-
-                    def starts_with_num(s):
-                        return (s[0].isdigit() or s[0] in ['-', '+']) if s else False
-
-                    if ' · Google Maps' in subtitulo_maps:
-                        subtitulo_maps = subtitulo_maps.replace(' · Google Maps', '')
-
-                    if starts_with_num(titulo_maps):
-                        if starts_with_num(subtitulo_maps):
-                            self.direccion = titulo_maps
-                        else:
-                            self.direccion = subtitulo_maps if subtitulo_maps else titulo_maps
-                    else:
-                        self.direccion = titulo_maps
-                else:
-                    final_url = res.geturl()
-                    if '/search/' in final_url:
-                        query = final_url.split('/search/')[1].split('?')[0].split('/')[0]
-                        self.direccion = urllib.parse.unquote_plus(query)
-                    elif '/place/' in final_url:
-                        query = final_url.split('/place/')[1].split('/')[0]
-                        self.direccion = urllib.parse.unquote_plus(query)
-            except Exception as e:
-                print(f'Error resolviendo enlace de maps: {e}')
-
         if self.imagen and not getattr(self, '_image_compressed', False):
             if hasattr(self.imagen, 'file') and not hasattr(self.imagen.file, 'url'):
                 try:

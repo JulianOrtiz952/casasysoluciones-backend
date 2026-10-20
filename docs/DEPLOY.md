@@ -25,8 +25,9 @@ Guía operativa para despliegue parcial de **iteración 1**: auth, usuarios, inm
 | `DEBUG` | Sí | Modo depuración | `False` |
 | `ALLOWED_HOSTS` | Sí | Hosts permitidos (coma) | `api.casasysoluciones.com` |
 | `SECRET_KEY` | Sí (prod) | Clave Django | *(generar valor seguro)* |
-| `LOGIN_ATTEMPT_LIMIT` | No | Intentos antes de bloqueo | `5` |
-| `LOGIN_COOLDOWN` | No | Segundos de bloqueo | `900` |
+| `LOGIN_NETWORK_ATTEMPT_LIMIT` | No | Intentos acumulados por red e identificador antes de bloqueo | `25` |
+| `LOGIN_NETWORK_COOLDOWN` | No | Bloqueo por red al alcanzar su límite | `1800` |
+| `LOGIN_ATTEMPT_RESET_WINDOW` | No | Reinicio de la progresión tras inactividad | `86400` |
 | `SESSION_COOKIE_AGE` | No | Duración sesión HTML POT | `3600` |
 | `SESSION_COOKIE_SECURE` | Prod | Cookie solo HTTPS | `True` |
 | `EMAIL_BACKEND` | Sí (prod) | Backend correo | `django.core.mail.backends.smtp.EmailBackend` |
@@ -53,8 +54,7 @@ Sin bucket configurado, los archivos se guardan en `media/` local (`MEDIA_ROOT`)
 | OpenAPI JSON | `GET /api/v1/schema/` |
 | Swagger UI | `GET /api/v1/schema/swagger/` |
 | ReDoc | `GET /api/v1/schema/redoc/` |
-| API legada catálogo | `GET /api/v1/legacy/inmuebles/` |
-| Compat. legado (temporal) | `GET /api/v1/inmuebles/` |
+| Compat. legado protegida (ADMIN/ASSISTANT) | `GET /api/v1/inmuebles/` |
 | Import Excel (ADMIN) | `POST /api/v1/admin/import/excel/` |
 | Auth JWT (legado clientes) | `POST /api/v1/token/` |
 

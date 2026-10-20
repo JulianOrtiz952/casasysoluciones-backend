@@ -1,6 +1,6 @@
 from datetime import timedelta
+from math import ceil
 
-from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -23,9 +23,9 @@ from pot.models import CustomUser
 from pot.services.auth_service import (
     buscar_usuario_por_credencial,
     generar_reset_token,
-    limpiar_intentos_fallidos,
-    registrar_intento_fallido,
-    verificar_intento_login,
+    limpiar_fallos_login,
+    registrar_fallo_login,
+    verificar_bloqueo_login,
 )
 from pot.services.email_service import enviar_reset_password
 
@@ -49,6 +49,33 @@ def _issue_tokens(user):
     }
 
 
+def _login_throttled_response(locked_until):
+    retry_after = max(1, ceil((locked_until - timezone.now()).total_seconds()))
+    if retry_after < 60:
+        wait_label = '1 segundo' if retry_after == 1 else f'{retry_after} segundos'
+    else:
+        wait_minutes = max(1, ceil(retry_after / 60))
+        wait_label = '1 minuto' if wait_minutes == 1 else f'{wait_minutes} minutos'
+    response = Response(
+        {
+            'error': {
+                'code': 'login_temporarily_blocked',
+                'message': (
+                    'Demasiados intentos fallidos. '
+                    f'Intenta nuevamente en {wait_label}.'
+                ),
+                'details': {
+                    'locked_until': locked_until.isoformat(),
+                    'retry_after_seconds': retry_after,
+                },
+            }
+        },
+        status=status.HTTP_429_TOO_MANY_REQUESTS,
+    )
+    response['Retry-After'] = str(retry_after)
+    return response
+
+
 class LoginView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -59,34 +86,20 @@ class LoginView(APIView):
         password = serializer.validated_data['password']
 
         user = buscar_usuario_por_credencial(identifier)
-        if not user:
-            raise APIError(
-                'invalid_credentials',
-                'Credenciales incorrectas.',
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            )
+        include_network = user is not None
+        allowed, locked_until = verificar_bloqueo_login(identifier, request, include_network)
+        if not allowed:
+            return _login_throttled_response(locked_until)
 
-        ok, locked_until = verificar_intento_login(user)
-        if not ok:
-            raise APIError(
-                'account_locked',
-                f'Cuenta bloqueada por intentos fallidos. Intenta después de {locked_until:%H:%M}.',
-                status_code=status.HTTP_403_FORBIDDEN,
-                details={'locked_until': locked_until.isoformat()},
-            )
-
-        if not user.is_active:
-            raise APIError(
-                'account_inactive',
-                'Usuario desactivado.',
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
-
-        authenticated = authenticate(request, username=user.email, password=password)
+        authenticated = (
+            authenticate(request, username=user.email, password=password)
+            if user and user.is_active
+            else None
+        )
         if not authenticated:
-            attempts = registrar_intento_fallido(user)
-            limit = getattr(settings, 'LOGIN_ATTEMPT_LIMIT', 5)
-            remaining = max(0, limit - attempts)
+            remaining, locked_until = registrar_fallo_login(identifier, request, include_network)
+            if locked_until:
+                return _login_throttled_response(locked_until)
             raise APIError(
                 'invalid_credentials',
                 'Credenciales incorrectas.',
@@ -94,7 +107,7 @@ class LoginView(APIView):
                 details={'remaining_attempts': remaining},
             )
 
-        limpiar_intentos_fallidos(user)
+        limpiar_fallos_login(identifier, request, include_network)
         tokens = _issue_tokens(user)
         return Response(
             {

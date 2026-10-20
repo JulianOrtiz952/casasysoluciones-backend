@@ -9,7 +9,6 @@ I1_PATH_PREFIXES = (
     '/api/v1/inventories/',
     '/api/v1/tickets/mine/',
     '/api/v1/admin/',
-    '/api/v1/legacy/',
 )
 
 # Rutas de compatibilidad temporal del legado (sin prefijo legacy/)
@@ -23,7 +22,7 @@ LEGACY_COMPAT_PATHS = (
 
 
 def preprocess_filter_i1(endpoints):
-    """Incluye solo endpoints de iteración 1 y catálogo legado."""
+    """Incluye solo endpoints de iteración 1 y compatibilidad autenticada."""
     filtered = []
     for path, path_regex, method, callback in endpoints:
         if path.startswith(I1_PATH_PREFIXES) or path.startswith(LEGACY_COMPAT_PATHS):

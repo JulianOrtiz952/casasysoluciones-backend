@@ -1,6 +1,5 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .models import HistorialAlquiler, ImagenInmueble, Inmueble, Inquilino
 
@@ -37,7 +36,6 @@ class HistorialAlquilerSerializer(serializers.ModelSerializer):
 
 
 class ChangePasswordSerializer(serializers.Serializer):
-    email = serializers.EmailField(required=True)
     old_password = serializers.CharField(required=True)
     new_password = serializers.CharField(required=True)
 
@@ -132,12 +130,3 @@ class UserSerializer(serializers.ModelSerializer):
                 instance.is_staff = False
             instance.save()
         return instance
-
-
-class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    @classmethod
-    def get_token(cls, user):
-        token = super().get_token(user)
-        token['email'] = user.email
-        token['rol'] = user.role
-        return token

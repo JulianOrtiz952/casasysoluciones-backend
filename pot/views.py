@@ -44,9 +44,9 @@ from pot.models import (
 from pot.services.auth_service import (
     generar_password_temporal,
     generar_reset_token,
-    limpiar_intentos_fallidos,
-    registrar_intento_fallido,
-    verificar_intento_login,
+    limpiar_fallos_login,
+    registrar_fallo_login,
+    verificar_bloqueo_login,
 )
 from pot.services.email_service import (
     enviar_credenciales_temporales,
@@ -81,28 +81,21 @@ class PotLoginView(DjangoLoginView):
         if request.method == 'POST':
             email = (request.POST.get('username') or '').strip()
             if email:
-                try:
-                    cand = CustomUser.objects.get(email__iexact=email)
-                except CustomUser.DoesNotExist:
-                    cand = None
-                if cand:
-                    ok, until = verificar_intento_login(cand)
-                    if not ok:
-                        messages.error(
-                            request,
-                            f'Cuenta bloqueada. Intenta después de {until.strftime("%H:%M")}.',
-                        )
-                        return render(request, self.template_name, {'form': LoginForm()})
+                include_network = CustomUser.objects.filter(email__iexact=email).exists()
+                ok, until = verificar_bloqueo_login(email, request, include_network)
+                if not ok:
+                    messages.error(
+                        request,
+                        f'Acceso suspendido temporalmente. Intenta después de {until.strftime("%H:%M")}.',
+                    )
+                    return render(request, self.template_name, {'form': LoginForm()})
         return super().dispatch(request, *args, **kwargs)
 
     def form_invalid(self, form):
         email = (self.request.POST.get('username') or '').strip()
         if email:
-            try:
-                u = CustomUser.objects.get(email__iexact=email)
-                registrar_intento_fallido(u)
-            except CustomUser.DoesNotExist:
-                pass
+            include_network = CustomUser.objects.filter(email__iexact=email).exists()
+            registrar_fallo_login(email, self.request, include_network)
         return super().form_invalid(form)
 
     def form_valid(self, form):
@@ -110,7 +103,7 @@ class PotLoginView(DjangoLoginView):
         if not user.is_active:
             messages.error(self.request, 'Usuario desactivado.')
             return redirect('pot:login')
-        limpiar_intentos_fallidos(user)
+        limpiar_fallos_login(user.email, self.request)
         return super().form_valid(form)
 
     def get_success_url(self):

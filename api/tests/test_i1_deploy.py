@@ -45,7 +45,7 @@ class OpenApiSchemaTests(TestCase):
         self.assertIn('/api/v1/properties/', paths)
         self.assertIn('/api/v1/tickets/mine/', paths)
         self.assertIn('/api/v1/admin/import/excel/', paths)
-        self.assertIn('/api/v1/legacy/inmuebles/', paths)
+        self.assertNotIn('/api/v1/legacy/inmuebles/', paths)
 
     def test_schema_endpoint_registered(self):
         from django.urls import resolve
@@ -55,12 +55,22 @@ class OpenApiSchemaTests(TestCase):
 
 
 class LegacyRoutingExtendedTests(TestCase):
-    def test_legacy_and_compat_inmuebles_list(self):
+    def test_legacy_removed_and_compat_requires_staff(self):
         c = APIClient()
         legacy = c.get('/api/v1/legacy/inmuebles/')
         compat = c.get('/api/v1/inmuebles/')
-        self.assertEqual(legacy.status_code, status.HTTP_200_OK)
-        self.assertEqual(compat.status_code, status.HTTP_200_OK)
+        self.assertEqual(legacy.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(compat.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        staff = CustomUser.objects.create_user(
+            email='legacy-staff@test.com',
+            password='AssistPass123!',
+            role=CustomUser.Role.ASSISTANT,
+            password_changed=True,
+        )
+        c.force_authenticate(user=staff)
+        allowed = c.get('/api/v1/inmuebles/')
+        self.assertEqual(allowed.status_code, status.HTTP_200_OK)
 
 
 @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')

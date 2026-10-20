@@ -354,7 +354,7 @@ class PropertyManagementAPITests(TestCase):
             code='PRO-00608',
             address='Calle Publica 8',
             type=Property.Type.HOUSE,
-            owner_name='Nombre privado',
+            owner_name='Casa del Parque',
             status=Property.Status.AVAILABLE,
             is_active=True,
         )
@@ -362,6 +362,7 @@ class PropertyManagementAPITests(TestCase):
         r = self.client.get(f'/api/v1/properties/{prop.id}/')
 
         self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data['title'], 'Casa del Parque')
         self.assertNotIn('owner_name', r.data)
         self.assertNotIn('active_tenant', r.data)
         self.assertNotIn('observations', r.data)

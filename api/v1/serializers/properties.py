@@ -18,6 +18,10 @@ class PropertyImageSerializer(serializers.ModelSerializer):
 class PublicPropertySerializer(serializers.ModelSerializer):
     """Only fields that are safe and useful in the public property catalogue."""
 
+    # `owner_name` es el nombre histórico de la columna; en los formularios y
+    # cargas actuales representa el título comercial del inmueble. Se publica
+    # con una clave explícita sin exponer el nombre interno legado.
+    title = serializers.CharField(source='owner_name', read_only=True)
     type_display = serializers.CharField(source='get_type_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     cover_image = serializers.ImageField(read_only=True)
@@ -27,6 +31,7 @@ class PublicPropertySerializer(serializers.ModelSerializer):
         model = Property
         fields = [
             'id',
+            'title',
             'code',
             'address',
             'city',

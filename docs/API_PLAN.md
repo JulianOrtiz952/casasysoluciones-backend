@@ -5,9 +5,8 @@ Este documento describe la base aditiva de `api/v1` implementada en backend, sin
 ## Principios aplicados
 
 - La capa nueva vive en `api/v1/`.
-- El legado sigue activo en:
-  - `/api/v1/legacy/...`
-  - `/api/v1/...` (compatibilidad temporal para clientes actuales).
+- La compatibilidad temporal del legado permanece únicamente en `/api/v1/...`
+  y exige autenticación con rol `ADMIN` o `ASSISTANT`.
 - Se reutiliza lógica de autenticación de `pot/services/auth_service.py`.
 
 ## Endpoints base implementados
@@ -16,7 +15,7 @@ Este documento describe la base aditiva de `api/v1` implementada en backend, sin
 
 - `POST /api/v1/auth/login/`
   - Acepta `email` o `document_number`.
-  - Mantiene bloqueo por intentos fallidos (`LOGIN_ATTEMPT_LIMIT`, `LOGIN_COOLDOWN`) usando `auth_service`.
+  - Aplica bloqueos progresivos por dispositivo: 30 s, 1 min, 5 min, 10 min y 30 min.
 - `POST /api/v1/auth/refresh/`
 - `POST /api/v1/auth/logout/`
 - `GET /api/v1/auth/me/`
@@ -164,7 +163,7 @@ Body create (ejemplo):
 | OpenAPI JSON | `GET /api/v1/schema/` |
 | Swagger UI | `GET /api/v1/schema/swagger/` |
 | Import Excel (solo ADMIN) | `POST /api/v1/admin/import/excel/` |
-| API legada | `GET /api/v1/legacy/inmuebles/` (compat: `/api/v1/inmuebles/`) |
+| Compatibilidad legada protegida | `GET /api/v1/inmuebles/` |
 
 Detalle operativo y checklist de variables: [`docs/DEPLOY.md`](DEPLOY.md).
 
