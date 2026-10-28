@@ -20,6 +20,45 @@ def uploaded_image(name='photo.png', size=(32, 24), color='red'):
 
 
 class PropertyManagementAPITests(TestCase):
+    def test_update_with_maps_only_accepts_empty_address_and_preserves_title(self):
+        self.client.force_authenticate(user=self.admin)
+        for index in range(2):
+            prop = Property.objects.create(
+                code=f'PRO-MAPS-{index}', address=f'Antes {index}',
+                type=Property.Type.APARTMENT, owner_name='Nombre original',
+            )
+            response = self.client.patch(f'/api/v1/properties/{prop.id}/', {
+                'address': '', 'google_maps_link': 'https://maps.app.goo.gl/2rUgvX4dDyLEzy9b7',
+                'owner_name': 'Apartamento 302 guaimaral',
+            }, format='json')
+            self.assertEqual(response.status_code, 200, response.data)
+            prop.refresh_from_db()
+            self.assertEqual(prop.owner_name, 'Apartamento 302 guaimaral')
+            self.assertEqual(prop.code, f'PRO-MAPS-{index}')
+            self.assertEqual(prop.address, f'Ubicación por confirmar ({prop.code})')
+            self.assertEqual(response.data['owner_name'], 'Apartamento 302 guaimaral')
+            public_client = APIClient()
+            public_response = public_client.get(f'/api/v1/properties/{prop.id}/')
+            self.assertEqual(public_response.status_code, 200)
+            self.assertEqual(public_response.data['title'], 'Apartamento 302 guaimaral')
+            self.assertEqual(public_response.data['google_maps_link'], prop.google_maps_link)
+
+    def test_update_rejects_removing_both_address_and_maps(self):
+        self.client.force_authenticate(user=self.admin)
+        prop = Property.objects.create(code='PRO-NO-MAPS', address='Antes', type=Property.Type.HOUSE, owner_name='Casa')
+        response = self.client.patch(f'/api/v1/properties/{prop.id}/', {'address': '', 'google_maps_link': ''}, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error']['code'], 'address_required')
+
+    def test_update_with_address_can_remove_maps_link(self):
+        self.client.force_authenticate(user=self.admin)
+        prop = Property.objects.create(code='PRO-ADDRESS', address='Antes', type=Property.Type.HOUSE, owner_name='Casa', google_maps_link='https://maps.app.goo.gl/example')
+        response = self.client.patch(f'/api/v1/properties/{prop.id}/', {'address': 'Calle nueva 123', 'google_maps_link': ''}, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        prop.refresh_from_db()
+        self.assertEqual(prop.address, 'Calle nueva 123')
+        self.assertEqual(prop.google_maps_link, '')
+
     def setUp(self):
         self.client = APIClient()
         self.admin = CustomUser.objects.create_user(

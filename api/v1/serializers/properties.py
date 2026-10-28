@@ -34,6 +34,7 @@ class PublicPropertySerializer(serializers.ModelSerializer):
             'title',
             'code',
             'address',
+            'google_maps_link',
             'city',
             'building_name',
             'unit_label',
@@ -174,7 +175,7 @@ class PropertyCreateSerializer(serializers.Serializer):
 
 
 class PropertyUpdateSerializer(serializers.Serializer):
-    address = serializers.CharField(max_length=255, required=False)
+    address = serializers.CharField(max_length=255, required=False, allow_blank=True)
     type = serializers.ChoiceField(choices=Property.Type.choices, required=False)
     owner_name = serializers.CharField(max_length=150, required=False)
     status = serializers.ChoiceField(choices=Property.Status.choices, required=False)

@@ -163,9 +163,21 @@ def crear_propiedad(created_by, **data):
 
 def actualizar_propiedad(prop, updated_by, **data):
     old_status = prop.status
-    if 'address' in data:
-        validar_direccion_unica(data['address'], exclude_pk=prop.pk)
-        data['address'] = data['address'].strip()
+    if 'address' in data or 'google_maps_link' in data:
+        address = (data.get('address', prop.address) or '').strip()
+        maps_link = (data.get('google_maps_link', prop.google_maps_link) or '').strip()
+        pending_address = (
+            not address
+            or address in ('Google Maps', 'Ver enlace de Google Maps adjunto')
+            or address.startswith('Ubicación por confirmar (')
+        )
+        if pending_address:
+            if not maps_link:
+                raise PropertyServiceError('address_required', 'La dirección o el enlace de Google Maps es obligatorio.')
+            data['address'] = f'Ubicación por confirmar ({prop.code})'
+        else:
+            validar_direccion_unica(address, exclude_pk=prop.pk)
+            data['address'] = address
 
     cover_image = data.pop('cover_image', None)
     new_images = data.pop('images', [])
